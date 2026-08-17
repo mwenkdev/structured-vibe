@@ -1023,9 +1023,10 @@ structured-vibe/
 │   └── opencode/
 │       └── src/
 ├── docs/
-│   ├── spec.md
-│   ├── architecture.md
-│   └── releasing.md
+│   └── specs/
+│       ├── structured-vibe-spec.md
+│       ├── architecture.md
+│       └── releasing.md
 └── ...
 ```
 
@@ -1045,9 +1046,9 @@ It should remain short and point agents to authoritative documents rather than d
 
 At minimum:
 
-- `docs/spec.md` is authoritative for product/workflow intent;
-- `docs/architecture.md` is authoritative for architectural constraints;
-- `docs/releasing.md` is authoritative for release mechanics.
+- `docs/specs/structured-vibe-spec.md` is authoritative for product/workflow intent;
+- `docs/specs/architecture.md` is authoritative for architectural constraints;
+- `docs/specs/releasing.md` is authoritative for release mechanics.
 
 Universal repository rules may also live in `AGENTS.md`, such as:
 

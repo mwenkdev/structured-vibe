@@ -4,8 +4,8 @@ This document defines the release mechanics for Structured Vibe.
 
 For architecture and product intent, see:
 
-- `docs/architecture.md`
-- `docs/spec.md`
+- `docs/specs/architecture.md`
+- `docs/specs/structured-vibe-spec.md`
 
 ## Release Principle
 
