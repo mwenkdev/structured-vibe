@@ -106,6 +106,65 @@ install-dev: build plugin
 	@echo "installed managed payload to $(SVIBE_DEV_HOME)"
 	@echo "run: SVIBE_CONFIG_HOME='$(SVIBE_DEV_HOME)' $(BINARY) status"
 
+# --- Release packaging ---------------------------------------------------
+#
+# A platform archive is a matched release unit: the CLI, core pack, managed
+# configuration and OpenCode integration all belong to one release version
+# (architecture 17.1).
+
+DIST_DIR := dist
+RELEASE_PLATFORMS := \
+	linux_amd64 linux_arm64 \
+	darwin_amd64 darwin_arm64 \
+	windows_amd64 windows_arm64
+
+.PHONY: dist
+dist: plugin
+	@rm -rf '$(DIST_DIR)'
+	@mkdir -p '$(DIST_DIR)'
+	@for platform in $(RELEASE_PLATFORMS); do \
+		goos=$${platform%%_*}; goarch=$${platform##*_}; \
+		name="svibe_$(VERSION)_$${goos}_$${goarch}"; \
+		stage="$(DIST_DIR)/$$name"; \
+		binary="svibe"; \
+		if [ "$$goos" = "windows" ]; then binary="svibe.exe"; fi; \
+		mkdir -p "$$stage/config" "$$stage/integrations/opencode"; \
+		CGO_ENABLED=0 GOOS=$$goos GOARCH=$$goarch \
+			$(GO) build -trimpath -ldflags '$(LDFLAGS)' -o "$$stage/$$binary" ./cmd/svibe || exit 1; \
+		cp -R core "$$stage/core"; \
+		cp config/models.yaml "$$stage/config/models.yaml"; \
+		cp $(PLUGIN_ARTIFACT) "$$stage/integrations/opencode/svibe.js"; \
+		if [ "$$goos" = "windows" ]; then \
+			( cd '$(DIST_DIR)' && zip -qr "$$name.zip" "$$name" ) || exit 1; \
+		else \
+			tar -czf "$(DIST_DIR)/$$name.tar.gz" -C '$(DIST_DIR)' "$$name" || exit 1; \
+		fi; \
+		rm -rf "$$stage"; \
+		echo "packaged $$name"; \
+	done
+	@cd '$(DIST_DIR)' && sha256sum svibe_$(VERSION)_* > checksums.txt
+	@echo "checksums written to $(DIST_DIR)/checksums.txt"
+
+# Fails unless every expected archive and its checksum exist. The release
+# workflow runs this before uploading anything.
+.PHONY: dist-verify
+dist-verify:
+	@missing=0; \
+	for platform in $(RELEASE_PLATFORMS); do \
+		goos=$${platform%%_*}; goarch=$${platform##*_}; \
+		name="svibe_$(VERSION)_$${goos}_$${goarch}"; \
+		ext="tar.gz"; \
+		if [ "$$goos" = "windows" ]; then ext="zip"; fi; \
+		if [ ! -f "$(DIST_DIR)/$$name.$$ext" ]; then \
+			echo "missing artifact: $$name.$$ext"; missing=1; \
+		elif ! grep -q "$$name.$$ext" '$(DIST_DIR)/checksums.txt'; then \
+			echo "missing checksum: $$name.$$ext"; missing=1; \
+		fi; \
+	done; \
+	if [ "$$missing" -ne 0 ]; then echo "artifact set is incomplete"; exit 1; fi; \
+	cd '$(DIST_DIR)' && sha256sum -c checksums.txt >/dev/null
+	@echo "artifact set verified for $(VERSION)"
+
 .PHONY: clean
 clean:
 	rm -rf $(BIN_DIR) dist .dev $(PLUGIN_DIR)/dist
