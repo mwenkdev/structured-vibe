@@ -1,0 +1,182 @@
+name: Release
+
+# Structured Vibe releases are transactional: a release and its tag exist only
+# if the entire pipeline completes successfully (docs/specs/releasing.md).
+#
+# A human creates the release, which creates the tag and triggers this
+# workflow. Any failure rolls back by deleting the release and its tag. There
+# is no tag-triggered workflow and no required workflow_dispatch step.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+
+    # One job, so rollback has a single failure surface to react to. Go cross
+    # compiles, so a build matrix would add parallel failure paths without
+    # buying anything.
+    steps:
+      - name: Identify release
+        id: release
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Releasing $TAG"
+
+      - name: Validate version format
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Plain SemVer with no "v" prefix.
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+          if ! printf '%s' "$VERSION" | grep -Eq "$semver"; then
+            echo "::error::release name '$VERSION' is not plain SemVer (no 'v' prefix)"
+            exit 1
+          fi
+
+      # Checks out the commit the tag points at. If main has moved since the
+      # release was created, this still builds the tagged commit.
+      - name: Check out the exact tagged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Resolve exact commit
+        id: commit
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Building exactly $sha"
+
+      # A successful check for a different commit is not sufficient.
+      - name: Verify required validation for this exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.commit.outputs.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          conclusion=$(gh api \
+            "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&status=completed" \
+            --jq '[.workflow_runs[] | select(.conclusion == "success")] | length')
+
+          if [ "${conclusion:-0}" -lt 1 ]; then
+            echo "::error::required CI has not succeeded for commit $SHA"
+            echo "A successful run for a different commit does not count."
+            exit 1
+          fi
+          echo "CI succeeded for $SHA"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: integrations/opencode/package-lock.json
+
+      # Builds the OpenCode integration from source. It is part of the managed
+      # payload, so it must exist before the manifest is verified.
+      - name: Build OpenCode integration
+        run: make plugin
+
+      - name: Release validation
+        run: |
+          set -euo pipefail
+          make generate-check
+          make check
+
+      - name: Build release artifacts
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: make dist VERSION="$VERSION"
+
+      - name: Verify artifact set
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: make dist-verify VERSION="$VERSION"
+
+      # Confirms the packaged binary reports the release version and passes its
+      # own managed-integrity check against the payload shipped beside it.
+      - name: Smoke test packaged artifact
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          tar -xzf "dist/svibe_${VERSION}_linux_amd64.tar.gz" -C "$work"
+          root="$work/svibe_${VERSION}_linux_amd64"
+
+          got=$("$root/svibe" --version)
+          if [ "$got" != "$VERSION" ]; then
+            echo "::error::packaged binary reports '$got', expected '$VERSION'"
+            exit 1
+          fi
+
+          # Integrity is checked on every invocation. A missing managed file
+          # already fails, but a modified one only warns, and manifest/payload
+          # drift is exactly the bug packaging can introduce. So assert the
+          # run is clean of managed warnings rather than trusting the exit
+          # code alone.
+          SVIBE_CONFIG_HOME="$root" "$root/svibe" validate --json > validate.json
+
+          if grep -q '"managed\.' validate.json; then
+            echo "::error::packaged payload does not match the embedded manifest"
+            cat validate.json
+            exit 1
+          fi
+
+          skills=$(grep -c '"path"' validate.json || true)
+          if [ "${skills:-0}" -lt 1 ]; then
+            echo "::error::packaged core pack resolved no skills"
+            cat validate.json
+            exit 1
+          fi
+          echo "packaged artifact verified"
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release upload "$VERSION" \
+            dist/svibe_"$VERSION"_*.tar.gz \
+            dist/svibe_"$VERSION"_*.zip \
+            dist/checksums.txt \
+            --clobber
+
+      # Rollback is intentionally simple: delete the release and its tag.
+      # No per-asset cleanup, no retry tags, no moving an existing tag, and no
+      # recursive repair of a failed rollback. If rollback itself fails, that
+      # failure is reported and the run remains the troubleshooting record.
+      - name: Roll back release and tag
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set +e
+          echo "::warning::release pipeline failed; rolling back $VERSION"
+          gh release delete "$VERSION" --yes --cleanup-tag
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::error::rollback failed for $VERSION; the release or tag may still exist"
+            exit "$status"
+          fi
+          echo "rolled back $VERSION"
