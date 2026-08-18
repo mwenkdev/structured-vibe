@@ -12,6 +12,7 @@
 package hostskills
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,13 +29,24 @@ type Found struct {
 	Origin string
 }
 
+// ExtraDir is an additional configured location to scan, such as another
+// entry in the host's skills.paths.
+type ExtraDir struct {
+	Dir    string
+	Origin string
+	// Recursive matches how the host scans configured skill paths, which use
+	// a recursive **/SKILL.md glob rather than a fixed depth.
+	Recursive bool
+}
+
 // Scan returns skills the host discovers outside the Structured Vibe
 // snapshot, keyed by skill name.
 //
 // projectRoot may be empty when not inside a Git repository. home may be
 // empty to skip global locations. excludeRoots lists directories whose
-// contents should be ignored, normally the generated snapshot itself.
-func Scan(projectRoot, home string, excludeRoots []string) map[string][]Found {
+// contents should be ignored, normally the generated snapshot itself. extra
+// lists additional configured locations, such as other skills.paths entries.
+func Scan(projectRoot, home string, excludeRoots []string, extra ...ExtraDir) map[string][]Found {
 	out := map[string][]Found{}
 
 	type location struct {
@@ -64,7 +76,18 @@ func Scan(projectRoot, home string, excludeRoots []string) map[string][]Found {
 		if excluded(loc.dir, excludeRoots) {
 			continue
 		}
-		for _, f := range scanDir(loc.dir, loc.origin) {
+		for _, f := range scanDir(loc.dir, loc.origin, false) {
+			out[f.Name] = append(out[f.Name], f)
+		}
+	}
+
+	// Other configured skills.paths entries are just as capable of colliding
+	// as the default locations, and the host resolves the collision by race.
+	for _, ex := range extra {
+		if ex.Dir == "" || excluded(ex.Dir, excludeRoots) {
+			continue
+		}
+		for _, f := range scanDir(ex.Dir, ex.Origin, ex.Recursive) {
 			out[f.Name] = append(out[f.Name], f)
 		}
 	}
@@ -77,29 +100,51 @@ func Scan(projectRoot, home string, excludeRoots []string) map[string][]Found {
 	return out
 }
 
-// scanDir reads immediate child skill directories. The host scans these
-// locations with a fixed depth pattern, so matching that shape is sufficient
-// for collision detection.
-func scanDir(dir, origin string) []Found {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	var out []Found
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
+// scanDir finds skill directories beneath dir.
+//
+// The default host locations use a fixed-depth pattern, while configured
+// skills.paths entries are scanned recursively for **/SKILL.md. recursive
+// selects which shape to match so collision detection reflects what the host
+// would actually discover.
+func scanDir(dir, origin string, recursive bool) []Found {
+	if !recursive {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return nil
 		}
-		sub := filepath.Join(dir, e.Name())
-		if !skill.IsSkillDir(sub) {
-			continue
+		var out []Found
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			sub := filepath.Join(dir, e.Name())
+			if !skill.IsSkillDir(sub) {
+				continue
+			}
+			out = append(out, Found{
+				Name:   e.Name(),
+				Path:   filepath.Join(sub, skill.FileName),
+				Origin: origin,
+			})
+		}
+		return out
+	}
+
+	var out []Found
+	_ = filepath.WalkDir(dir, func(p string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if entry.IsDir() || entry.Name() != skill.FileName {
+			return nil
 		}
 		out = append(out, Found{
-			Name:   e.Name(),
-			Path:   filepath.Join(sub, skill.FileName),
+			Name:   filepath.Base(filepath.Dir(p)),
+			Path:   p,
 			Origin: origin,
 		})
-	}
+		return nil
+	})
 	return out
 }
 

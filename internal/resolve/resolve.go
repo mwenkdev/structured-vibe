@@ -68,6 +68,9 @@ type Input struct {
 	// ExcludeRoots are directories to ignore during collision detection,
 	// normally the generated snapshot.
 	ExcludeRoots []string
+	// ExtraSkillDirs are additional host-configured skill locations, such as
+	// other skills.paths entries, which can collide just as readily.
+	ExtraSkillDirs []hostskills.ExtraDir
 }
 
 type candidate struct {
@@ -211,11 +214,11 @@ func Resolve(in Input) (*Resolution, diag.Diagnostics) {
 // loads is not deterministic, so the human needs to know.
 func detectHostCollisions(resolved []Resolved, in Input) diag.Diagnostics {
 	var d diag.Diagnostics
-	if in.ProjectRoot == "" && in.Home == "" {
+	if in.ProjectRoot == "" && in.Home == "" && len(in.ExtraSkillDirs) == 0 {
 		return d
 	}
 
-	host := hostskills.Scan(in.ProjectRoot, in.Home, in.ExcludeRoots)
+	host := hostskills.Scan(in.ProjectRoot, in.Home, in.ExcludeRoots, in.ExtraSkillDirs...)
 	if len(host) == 0 {
 		return d
 	}

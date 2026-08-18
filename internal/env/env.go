@@ -95,7 +95,12 @@ func LoadWithOptions(cwd string, opts Options) (*Environment, diag.Diagnostics) 
 	case perr == nil:
 		e.ProjectRoot = root
 		packDir := paths.ProjectPackDir(root)
-		if _, statErr := os.Stat(packDir); statErr == nil {
+		// Presence of .structured-vibe/ does not imply a project pack: sync
+		// creates that directory to hold generated output even when the
+		// project was never initialized. Only a manifest declares a pack.
+		// Testing the directory instead would make "sync before init" leave
+		// every later command failing on a missing manifest.
+		if _, statErr := os.Stat(filepath.Join(packDir, pack.ManifestName)); statErr == nil {
 			p, pd := pack.Load(packDir, scope.Project)
 			d.Extend(pd)
 			if p != nil {

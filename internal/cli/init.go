@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"github.com/mwenkdev/structured-vibe/internal/cliout"
+	"github.com/mwenkdev/structured-vibe/internal/hostint"
 	"github.com/mwenkdev/structured-vibe/internal/pack"
 	"github.com/mwenkdev/structured-vibe/internal/paths"
-	"github.com/mwenkdev/structured-vibe/internal/scope"
 )
 
 // initialVersion is the starting version for a new project pack.
@@ -24,6 +24,9 @@ type initResult struct {
 	Version     string   `json:"version"`
 	Created     []string `json:"created"`
 	AlreadyDone bool     `json:"already_initialized"`
+	// Registered reports whether the project OpenCode config lists the
+	// generated snapshot in skills.paths.
+	Registered bool `json:"snapshot_registered"`
 }
 
 func (r *initResult) PrintHuman(w io.Writer) {
@@ -36,7 +39,11 @@ func (r *initResult) PrintHuman(w io.Writer) {
 	for _, c := range r.Created {
 		fmt.Fprintf(w, "  created %s\n", c)
 	}
+	if r.Registered {
+		fmt.Fprintf(w, "  registered %s in skills.paths\n", paths.OpenCodeSkillsRelPath)
+	}
 	fmt.Fprintf(w, "\nAdd skills under %s\n", filepath.Join(r.PackDir, pack.SkillsDir))
+	fmt.Fprintln(w, "Then run \"svibe sync\" to publish them to OpenCode.")
 }
 
 func runInit(e *Env, args []string) error {
@@ -81,7 +88,16 @@ func runInit(e *Env, args []string) error {
 
 	if _, err := os.Stat(manifestPath); err == nil {
 		res.AlreadyDone = true
-		if !out.Emit(true, d, res) {
+		// Re-running init on an existing pack still repairs host registration,
+		// which is how a user recovers after editing opencode.json by hand.
+		changed, rd := hostint.RegisterSnapshotPath(root)
+		d.Extend(rd)
+		res.Registered = !rd.HasErrors()
+		if changed {
+			cfgPath, _ := hostint.FindProjectConfig(root)
+			res.Created = append(res.Created, cfgPath)
+		}
+		if !out.Emit(!d.HasErrors(), d, res) {
 			return Failure
 		}
 		return nil
@@ -116,9 +132,23 @@ func runInit(e *Env, args []string) error {
 		res.Created = append(res.Created, filepath.Join(root, ".gitignore"))
 	}
 
-	_ = scope.Project // project scope is what this pack will occupy
+	// Point the host at the generated snapshot. Existing entries are
+	// preserved: OpenCode replaces the skills.paths array at the
+	// higher-precedence scope rather than merging, so overwriting it would
+	// silently discard paths the user configured.
+	changed, rd := hostint.RegisterSnapshotPath(root)
+	d.Extend(rd)
+	if changed {
+		cfgPath, _ := hostint.FindProjectConfig(root)
+		res.Created = append(res.Created, cfgPath)
+		res.Registered = true
+	} else if !rd.HasErrors() {
+		res.Registered = true
+	}
 
-	if !out.Emit(true, d, res) {
+	d.Extend(hostint.CheckGlobalSkillsPathsShadowed(homeDir(), root))
+
+	if !out.Emit(!d.HasErrors(), d, res) {
 		return Failure
 	}
 	return nil
@@ -157,4 +187,13 @@ func ensureGitignore(root string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// homeDir returns the user home directory, or "" when unavailable.
+func homeDir() string {
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return h
 }

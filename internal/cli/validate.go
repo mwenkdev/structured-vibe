@@ -7,6 +7,8 @@ import (
 
 	"github.com/mwenkdev/structured-vibe/internal/cliout"
 	"github.com/mwenkdev/structured-vibe/internal/env"
+	"github.com/mwenkdev/structured-vibe/internal/hostint"
+	"github.com/mwenkdev/structured-vibe/internal/hostskills"
 	"github.com/mwenkdev/structured-vibe/internal/pack"
 	"github.com/mwenkdev/structured-vibe/internal/paths"
 	"github.com/mwenkdev/structured-vibe/internal/resolve"
@@ -139,10 +141,11 @@ func validateEnvironment(e *Env, out *cliout.Writer) error {
 
 	if !d.HasErrors() {
 		resolution, rd := resolve.Resolve(resolve.Input{
-			Packs:        environment.Packs,
-			ProjectRoot:  environment.ProjectRoot,
-			Home:         environment.Home,
-			ExcludeRoots: excludeRoots(environment.ProjectRoot),
+			Packs:          environment.Packs,
+			ProjectRoot:    environment.ProjectRoot,
+			Home:           environment.Home,
+			ExcludeRoots:   excludeRoots(environment.ProjectRoot),
+			ExtraSkillDirs: extraSkillDirs(environment.ProjectRoot, environment.Home),
 		})
 		d.Extend(rd)
 		if resolution != nil {
@@ -174,4 +177,22 @@ func excludeRoots(projectRoot string) []string {
 		return nil
 	}
 	return []string{paths.GeneratedDir(projectRoot)}
+}
+
+// extraSkillDirs lists other host-configured skill locations, so a collision
+// between two skills.paths entries is detected rather than left to the host's
+// nondeterministic duplicate handling.
+func extraSkillDirs(projectRoot, home string) []hostskills.ExtraDir {
+	if projectRoot == "" {
+		return nil
+	}
+	var out []hostskills.ExtraDir
+	for _, dir := range hostint.ConfiguredSkillPaths(projectRoot, home) {
+		out = append(out, hostskills.ExtraDir{
+			Dir:       dir,
+			Origin:    "opencode skills.paths entry " + dir,
+			Recursive: true,
+		})
+	}
+	return out
 }
