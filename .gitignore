@@ -17,3 +17,6 @@ integrations/opencode/dist/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# Local development managed payload
+/.dev/

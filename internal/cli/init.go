@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/mwenkdev/structured-vibe/internal/cliout"
-	"github.com/mwenkdev/structured-vibe/internal/diag"
 	"github.com/mwenkdev/structured-vibe/internal/pack"
 	"github.com/mwenkdev/structured-vibe/internal/paths"
 	"github.com/mwenkdev/structured-vibe/internal/scope"
@@ -53,7 +52,7 @@ func runInit(e *Env, args []string) error {
 	}
 
 	out := cliout.New(e.Stdout, e.Stderr, *asJSON)
-	var d diag.Diagnostics
+	d := e.baseDiags()
 
 	root, err := paths.ProjectRoot(e.cwd())
 	if err != nil {

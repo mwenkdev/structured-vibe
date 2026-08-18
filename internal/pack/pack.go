@@ -54,8 +54,23 @@ type Pack struct {
 	Skills   []skill.Skill `json:"skills"`
 }
 
+// Options adjusts how a pack is loaded.
+type Options struct {
+	// AllowSkill, when non-nil, restricts which skill names are recognized.
+	//
+	// This implements closed core membership: core skills come from the
+	// shipped release manifest, so an extra skill directory dropped into the
+	// installed core tree is not discovered (architecture 16.6).
+	AllowSkill func(name string) bool
+}
+
 // Load reads the pack rooted at root and validates it in isolation.
 func Load(root string, sc scope.Scope) (*Pack, diag.Diagnostics) {
+	return LoadWithOptions(root, sc, Options{})
+}
+
+// LoadWithOptions reads a pack with explicit loading options.
+func LoadWithOptions(root string, sc scope.Scope, opts Options) (*Pack, diag.Diagnostics) {
 	var d diag.Diagnostics
 	manifestPath := filepath.Join(root, ManifestName)
 
@@ -94,7 +109,7 @@ func Load(root string, sc scope.Scope) (*Pack, diag.Diagnostics) {
 
 	p := &Pack{Manifest: m, Root: root, Scope: sc}
 
-	skills, skillDiags := loadSkills(root)
+	skills, skillDiags := loadSkills(root, opts)
 	d.Extend(skillDiags)
 	p.Skills = skills
 
@@ -107,7 +122,7 @@ func Load(root string, sc scope.Scope) (*Pack, diag.Diagnostics) {
 // loadSkills reads immediate child directories of skills/ that contain a
 // SKILL.md. Anything else beneath skills/ is ignored rather than reported,
 // so a pack may keep unrelated material there.
-func loadSkills(root string) ([]skill.Skill, diag.Diagnostics) {
+func loadSkills(root string, opts Options) ([]skill.Skill, diag.Diagnostics) {
 	var d diag.Diagnostics
 	skillsRoot := filepath.Join(root, SkillsDir)
 
@@ -130,6 +145,12 @@ func loadSkills(root string) ([]skill.Skill, diag.Diagnostics) {
 		}
 		dir := filepath.Join(skillsRoot, e.Name())
 		if !skill.IsSkillDir(dir) {
+			continue
+		}
+		// Membership is closed for scopes that declare it. An unlisted
+		// directory is silently not a skill, not an error: extra files
+		// beneath managed directories are ignored.
+		if opts.AllowSkill != nil && !opts.AllowSkill(e.Name()) {
 			continue
 		}
 

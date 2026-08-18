@@ -6,7 +6,6 @@ import (
 
 	"github.com/mwenkdev/structured-vibe/internal/buildinfo"
 	"github.com/mwenkdev/structured-vibe/internal/cliout"
-	"github.com/mwenkdev/structured-vibe/internal/diag"
 	"github.com/mwenkdev/structured-vibe/internal/scope"
 )
 
@@ -26,7 +25,7 @@ func runVersion(e *Env, args []string) error {
 	}
 
 	out := cliout.New(e.Stdout, e.Stderr, *asJSON)
-	out.Emit(true, diag.Diagnostics{}, &versionResult{Version: buildinfo.Version})
+	out.Emit(true, e.baseDiags(), &versionResult{Version: buildinfo.Version})
 	return nil
 }
 

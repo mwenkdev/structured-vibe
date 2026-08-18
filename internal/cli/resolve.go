@@ -66,8 +66,10 @@ func runResolve(e *Env, args []string) error {
 	}
 
 	out := cliout.New(e.Stdout, e.Stderr, *asJSON)
+	d := e.baseDiags()
 
-	environment, d := env.Load(e.cwd())
+	environment, ed := env.LoadWithOptions(e.cwd(), env.Options{Manifest: e.manifest()})
+	d.Extend(ed)
 	if environment == nil || d.HasErrors() {
 		out.Emit(false, d, nil)
 		return Failure

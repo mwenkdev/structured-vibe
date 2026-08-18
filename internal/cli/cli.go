@@ -12,6 +12,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/mwenkdev/structured-vibe/internal/diag"
+	"github.com/mwenkdev/structured-vibe/internal/managed"
+	"github.com/mwenkdev/structured-vibe/internal/paths"
 )
 
 // Env carries process context so commands stay testable.
@@ -19,6 +23,29 @@ type Env struct {
 	Stdout io.Writer
 	Stderr io.Writer
 	Cwd    string
+
+	// Manifest overrides the embedded managed payload. Tests set this to
+	// describe a constructed installation; production leaves it nil.
+	Manifest managed.Manifest
+
+	// pre holds diagnostics produced before dispatch, such as managed-file
+	// modification warnings, so commands can surface them in their envelope.
+	pre diag.Diagnostics
+}
+
+// manifest returns the effective managed manifest.
+func (e *Env) manifest() managed.Manifest {
+	if e.Manifest != nil {
+		return e.Manifest
+	}
+	return managed.Embedded()
+}
+
+// baseDiags returns a fresh copy of the pre-dispatch diagnostics.
+func (e *Env) baseDiags() diag.Diagnostics {
+	out := make(diag.Diagnostics, len(e.pre))
+	copy(out, e.pre)
+	return out
 }
 
 // Command is one svibe subcommand.
@@ -32,6 +59,7 @@ var commands = []Command{
 	{Name: "init", Summary: "create the project pack in the current repository", Run: runInit},
 	{Name: "validate", Summary: "validate the active environment, or one pack", Run: runValidate},
 	{Name: "resolve", Summary: "show the resolved skill set and its provenance", Run: runResolve},
+	{Name: "advise", Summary: "compare a skill's capability recommendation to a model", Run: runAdvise},
 	{Name: "version", Summary: "print the svibe version", Run: runVersion},
 }
 
@@ -60,9 +88,15 @@ func Run(e *Env, args []string) error {
 	}
 
 	for _, c := range commands {
-		if c.Name == args[0] {
-			return c.Run(e, args[1:])
+		if c.Name != args[0] {
+			continue
 		}
+		// Integrity is checked before executing any requested command,
+		// deliberately including innocuous ones (architecture 16.2).
+		if err := e.checkIntegrity(); err != nil {
+			return err
+		}
+		return c.Run(e, args[1:])
 	}
 
 	fmt.Fprintf(e.Stderr, "svibe: unknown command %q\n\n", args[0])
@@ -104,6 +138,36 @@ func parseMixed(fs *flag.FlagSet, args []string) ([]string, error) {
 		positional = append(positional, rest[0])
 		rest = rest[1:]
 	}
+}
+
+// checkIntegrity verifies the managed runtime payload before dispatch.
+//
+// A missing managed file fails here, before the command runs, because the
+// installed release is incomplete. A modified managed file only warns; the
+// warning is carried into the command's own output so it appears in the JSON
+// envelope alongside everything else.
+func (e *Env) checkIntegrity() error {
+	configHome, err := paths.ConfigHome()
+	if err != nil {
+		fmt.Fprintf(e.Stderr, "svibe: cannot determine configuration root: %v\n", err)
+		return Failure
+	}
+
+	_, d := managed.Check(configHome, e.manifest())
+
+	if d.HasErrors() {
+		for _, x := range d.Sorted() {
+			if x.Path != "" {
+				fmt.Fprintf(e.Stderr, "%s: %s\n  at %s\n  (%s)\n", x.Severity, x.Message, x.Path, x.Code)
+				continue
+			}
+			fmt.Fprintf(e.Stderr, "%s: %s\n  (%s)\n", x.Severity, x.Message, x.Code)
+		}
+		return Failure
+	}
+
+	e.pre = d
+	return nil
 }
 
 // Cwd returns the working directory, defaulting to the process one.

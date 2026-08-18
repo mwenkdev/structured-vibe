@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -9,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mwenkdev/structured-vibe/internal/managed"
 	"github.com/mwenkdev/structured-vibe/internal/pack"
 	"github.com/mwenkdev/structured-vibe/internal/paths"
 )
@@ -20,14 +23,39 @@ type runOutput struct {
 }
 
 // runCLI executes a command with an isolated config root and working dir.
+//
+// An empty manifest is injected so integrity checks pass trivially; the
+// managed-payload policy has its own dedicated tests below.
 func runCLI(t *testing.T, configHome, cwd string, args ...string) runOutput {
+	t.Helper()
+	return runCLIWithManifest(t, configHome, cwd, managed.Manifest{}, args...)
+}
+
+// runCLIWithManifest executes a command against an explicit managed manifest.
+func runCLIWithManifest(t *testing.T, configHome, cwd string, m managed.Manifest, args ...string) runOutput {
 	t.Helper()
 	t.Setenv(paths.ConfigHomeEnv, configHome)
 
 	var out, errw bytes.Buffer
-	e := &Env{Stdout: &out, Stderr: &errw, Cwd: cwd}
+	e := &Env{Stdout: &out, Stderr: &errw, Cwd: cwd, Manifest: m}
 	err := Run(e, args)
 	return runOutput{stdout: out.String(), stderr: errw.String(), err: err}
+}
+
+// manifestFor computes a manifest describing the managed files currently
+// present beneath configHome, so a constructed installation is self-consistent.
+func manifestFor(t *testing.T, configHome string, relPaths ...string) managed.Manifest {
+	t.Helper()
+	m := managed.Manifest{}
+	for _, rel := range relPaths {
+		raw, err := os.ReadFile(filepath.Join(configHome, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatalf("manifestFor: %v", err)
+		}
+		sum := sha256.Sum256(raw)
+		m[rel] = hex.EncodeToString(sum[:])
+	}
+	return m
 }
 
 // newRepo creates a directory that ProjectRoot will treat as a repository.
@@ -45,8 +73,10 @@ func newRepo(t *testing.T) string {
 	return resolved
 }
 
-// newCore writes a minimal core pack into the config root.
-func newCore(t *testing.T, configHome string, skillNames ...string) {
+// newCore writes a minimal core pack into the config root and returns a
+// manifest describing it, so core membership is closed over exactly these
+// skills.
+func newCore(t *testing.T, configHome string, skillNames ...string) managed.Manifest {
 	t.Helper()
 	core := paths.CoreDir(configHome)
 	if err := os.MkdirAll(core, 0o755); err != nil {
@@ -66,6 +96,12 @@ func newCore(t *testing.T, configHome string, skillNames ...string) {
 			t.Fatal(err)
 		}
 	}
+
+	rel := []string{"core/" + pack.ManifestName}
+	for _, n := range skillNames {
+		rel = append(rel, "core/"+pack.SkillsDir+"/"+n+"/SKILL.md")
+	}
+	return manifestFor(t, configHome, rel...)
 }
 
 func TestInitCreatesProjectPack(t *testing.T) {
@@ -179,10 +215,10 @@ func TestInitFailsOutsideRepository(t *testing.T) {
 // scopes when project scope does not exist.
 func TestResolveWorksOutsideRepository(t *testing.T) {
 	configHome := t.TempDir()
-	newCore(t, configHome, "sv-plan")
+	m := newCore(t, configHome, "sv-plan")
 	notARepo := t.TempDir()
 
-	got := runCLI(t, configHome, notARepo, "resolve", "--json")
+	got := runCLIWithManifest(t, configHome, notARepo, m, "resolve", "--json")
 	if got.err != nil {
 		t.Fatalf("resolve failed: %v\n%s", got.err, got.stderr)
 	}
@@ -212,10 +248,10 @@ func TestResolveWorksOutsideRepository(t *testing.T) {
 
 func TestResolveProjectOverridesCore(t *testing.T) {
 	configHome := t.TempDir()
-	newCore(t, configHome, "sv-plan", "sv-review")
+	m := newCore(t, configHome, "sv-plan", "sv-review")
 	repo := newRepo(t)
 
-	if got := runCLI(t, configHome, repo, "init"); got.err != nil {
+	if got := runCLIWithManifest(t, configHome, repo, m, "init"); got.err != nil {
 		t.Fatalf("init failed: %v", got.err)
 	}
 
@@ -229,7 +265,7 @@ func TestResolveProjectOverridesCore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := runCLI(t, configHome, repo, "resolve", "--json")
+	got := runCLIWithManifest(t, configHome, repo, m, "resolve", "--json")
 	if got.err != nil {
 		t.Fatalf("resolve failed: %v\n%s", got.err, got.stderr)
 	}
@@ -356,5 +392,121 @@ func TestVersionCommand(t *testing.T) {
 	}
 	if strings.TrimSpace(got.stdout) == "" {
 		t.Error("expected a version on stdout")
+	}
+}
+
+// TestIntegrityCheckedOnEveryInvocation guards architecture 16.2: the check
+// runs before executing any requested command, deliberately including
+// innocuous ones.
+func TestIntegrityCheckedOnEveryInvocation(t *testing.T) {
+	for _, cmd := range []string{"version", "resolve", "validate", "init", "advise"} {
+		t.Run(cmd, func(t *testing.T) {
+			configHome := t.TempDir()
+
+			// A manifest describing a file that was never installed.
+			m := managed.Manifest{"config/models.yaml": strings.Repeat("0", 64)}
+
+			args := []string{cmd}
+			if cmd == "advise" {
+				args = append(args, "--skill", "x")
+			}
+			got := runCLIWithManifest(t, configHome, newRepo(t), m, args...)
+
+			if got.err == nil {
+				t.Fatalf("%s ran despite an incomplete installation", cmd)
+			}
+			if !strings.Contains(got.stderr, "managed.missing") {
+				t.Errorf("stderr = %q", got.stderr)
+			}
+			if got.stdout != "" {
+				t.Errorf("no output should be produced: %q", got.stdout)
+			}
+		})
+	}
+}
+
+// TestModifiedManagedFileWarnsInEnvelope: modification warns but the command
+// still runs, and the warning reaches the JSON envelope.
+func TestModifiedManagedFileWarnsInEnvelope(t *testing.T) {
+	configHome := t.TempDir()
+	m := newCore(t, configHome, "sv-plan")
+
+	// Tamper with a managed file after the manifest was computed.
+	skillPath := filepath.Join(configHome, "core", pack.SkillsDir, "sv-plan", "SKILL.md")
+	tampered := "---\nname: sv-plan\ndescription: Locally modified description.\n---\nchanged\n"
+	if err := os.WriteFile(skillPath, []byte(tampered), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := runCLIWithManifest(t, configHome, newRepo(t), m, "resolve", "--json")
+	if got.err != nil {
+		t.Fatalf("a modified managed file must not fail the command: %v", got.err)
+	}
+
+	var env struct {
+		OK       bool `json:"ok"`
+		Warnings []struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(got.stdout), &env); err != nil {
+		t.Fatal(err)
+	}
+	if !env.OK {
+		t.Error("ok should remain true: warnings are advisory")
+	}
+
+	var found bool
+	for _, w := range env.Warnings {
+		if w.Code == "managed.modified" {
+			found = true
+			if !strings.Contains(w.Message, "unsupported") {
+				t.Errorf("warning should say local changes are unsupported: %q", w.Message)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("managed.modified warning missing from envelope: %+v", env.Warnings)
+	}
+}
+
+// TestExtraCoreSkillDirectoryNotDiscovered guards closed core membership:
+// dropping a SKILL.md directory into the installed core tree creates nothing.
+func TestExtraCoreSkillDirectoryNotDiscovered(t *testing.T) {
+	configHome := t.TempDir()
+	m := newCore(t, configHome, "sv-plan")
+
+	intruder := filepath.Join(configHome, "core", pack.SkillsDir, "sneaky-skill")
+	if err := os.MkdirAll(intruder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: sneaky-skill\ndescription: Added by hand to the installed core tree.\n---\nbody\n"
+	if err := os.WriteFile(filepath.Join(intruder, "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := runCLIWithManifest(t, configHome, newRepo(t), m, "resolve", "--json")
+	if got.err != nil {
+		t.Fatalf("resolve failed: %v\n%s", got.err, got.stderr)
+	}
+
+	var env struct {
+		Result struct {
+			Skills []struct {
+				Name string `json:"name"`
+			} `json:"skills"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(got.stdout), &env); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range env.Result.Skills {
+		if s.Name == "sneaky-skill" {
+			t.Fatal("an unlisted directory must not become a core skill")
+		}
+	}
+	if len(env.Result.Skills) != 1 {
+		t.Errorf("expected only sv-plan, got %+v", env.Result.Skills)
 	}
 }

@@ -1,0 +1,192 @@
+# Structured Vibe canonical model registry.
+#
+# Structured Vibe owns the canonical model-to-tier mapping. This file is
+# installed as managed runtime data. There is no supported user override
+# mechanism in v1; persistent customization belongs in a future design, not in
+# local edits to this file.
+#
+# MATCHING
+#
+# Alias matching is EXACT. Structured Vibe never infers model identity from
+# substring similarity, regular expressions, or guessed provider naming
+# conventions. An identifier that matches no alias is "unknown".
+#
+# "unknown" is not a tier. It is the state produced when the registry cannot
+# map the current model, and it produces a visible warning rather than a
+# block.
+#
+# TIERS
+#
+#   A  High reasoning.       Ambiguous product design, architecture, difficult
+#                            tradeoffs, adversarial specification review.
+#   B  Strong engineering.   Decomposition, JIT finalization, complex
+#                            implementation, difficult debugging, verification.
+#   C  Cost-efficient.       Sufficiently specified implementation, mechanical
+#                            refactors, test scaffolding, repetitive changes.
+#
+# TIERING POLICY
+#
+# Tiers are assigned only where a vendor's own naming encodes a defensible
+# capability ladder, such as opus > sonnet > haiku, or pro > base > mini >
+# nano. Models whose relative capability cannot be asserted honestly are
+# deliberately omitted; they resolve to unknown, warn, and continue.
+#
+# Tiers are advisory. They guide routing and warn about risk. They are not
+# authorization and never revoke the ability to run a model.
+#
+# These assignments are hypotheses to be corrected by dogfooding, not
+# permanent law.
+
+version: 1
+
+models:
+  # --- Anthropic: opus > sonnet > haiku -------------------------------------
+
+  claude-opus-5:
+    tier: A
+    aliases:
+      - anthropic/claude-opus-5
+      - openrouter/anthropic/claude-opus-5
+      - openrouter/~anthropic/claude-opus-latest
+
+  claude-opus-5-fast:
+    tier: A
+    aliases:
+      - anthropic/claude-opus-5-fast
+      - openrouter/anthropic/claude-opus-5-fast
+
+  claude-opus-4-8:
+    tier: A
+    aliases:
+      - anthropic/claude-opus-4-8
+      - openrouter/anthropic/claude-opus-4.8
+
+  claude-opus-4-8-fast:
+    tier: A
+    aliases:
+      - anthropic/claude-opus-4-8-fast
+      - openrouter/anthropic/claude-opus-4.8-fast
+
+  claude-opus-4-7:
+    tier: A
+    aliases:
+      - anthropic/claude-opus-4-7
+      - openrouter/anthropic/claude-opus-4.7
+
+  claude-opus-4-6:
+    tier: A
+    aliases:
+      - anthropic/claude-opus-4-6
+      - openrouter/anthropic/claude-opus-4.6
+
+  claude-opus-4-5:
+    tier: A
+    aliases:
+      - anthropic/claude-opus-4-5
+      - anthropic/claude-opus-4-5-20251101
+      - openrouter/anthropic/claude-opus-4.5
+
+  claude-sonnet-5:
+    tier: B
+    aliases:
+      - anthropic/claude-sonnet-5
+      - openrouter/anthropic/claude-sonnet-5
+      - openrouter/~anthropic/claude-sonnet-latest
+
+  claude-sonnet-4-6:
+    tier: B
+    aliases:
+      - anthropic/claude-sonnet-4-6
+      - openrouter/anthropic/claude-sonnet-4.6
+
+  claude-sonnet-4-5:
+    tier: B
+    aliases:
+      - anthropic/claude-sonnet-4-5
+      - anthropic/claude-sonnet-4-5-20250929
+      - openrouter/anthropic/claude-sonnet-4.5
+
+  claude-haiku-4-5:
+    tier: C
+    aliases:
+      - anthropic/claude-haiku-4-5
+      - anthropic/claude-haiku-4-5-20251001
+      - openrouter/anthropic/claude-haiku-4.5
+      - openrouter/~anthropic/claude-haiku-latest
+
+  # --- OpenAI: pro > base > mini > nano -------------------------------------
+
+  gpt-5-4-pro:
+    tier: A
+    aliases:
+      - openrouter/openai/gpt-5.4-pro
+
+  gpt-5-4:
+    tier: B
+    aliases:
+      - openai/gpt-5.4
+      - openai/gpt-5.4-fast
+      - openrouter/openai/gpt-5.4
+
+  gpt-5-4-mini:
+    tier: C
+    aliases:
+      - openai/gpt-5.4-mini
+      - openai/gpt-5.4-mini-fast
+      - openrouter/openai/gpt-5.4-mini
+
+  gpt-5-4-nano:
+    tier: C
+    aliases:
+      - openrouter/openai/gpt-5.4-nano
+
+  gpt-5-5:
+    tier: B
+    aliases:
+      - openai/gpt-5.5
+      - openai/gpt-5.5-fast
+
+  gpt-5-2-pro:
+    tier: A
+    aliases:
+      - openrouter/openai/gpt-5.2-pro
+
+  gpt-5-2:
+    tier: B
+    aliases:
+      - openrouter/openai/gpt-5.2
+
+  gpt-5-1-codex-max:
+    tier: A
+    aliases:
+      - openrouter/openai/gpt-5.1-codex-max
+
+  gpt-5-1-codex:
+    tier: B
+    aliases:
+      - openrouter/openai/gpt-5.1-codex
+
+  gpt-5-1-codex-mini:
+    tier: C
+    aliases:
+      - openrouter/openai/gpt-5.1-codex-mini
+
+  gpt-5-pro:
+    tier: A
+    aliases:
+      - openrouter/openai/gpt-5-pro
+
+  gpt-5:
+    tier: B
+    aliases:
+      - openrouter/openai/gpt-5
+
+  gpt-5-mini:
+    tier: C
+    aliases:
+      - openrouter/openai/gpt-5-mini
+
+  gpt-5-nano:
+    tier: C
+    aliases:
+      - openrouter/openai/gpt-5-nano

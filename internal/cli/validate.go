@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/mwenkdev/structured-vibe/internal/cliout"
-	"github.com/mwenkdev/structured-vibe/internal/diag"
 	"github.com/mwenkdev/structured-vibe/internal/env"
 	"github.com/mwenkdev/structured-vibe/internal/pack"
 	"github.com/mwenkdev/structured-vibe/internal/paths"
@@ -75,14 +74,14 @@ func runValidate(e *Env, args []string) error {
 	}
 
 	if len(rest) == 1 {
-		return validateSinglePack(out, rest[0])
+		return validateSinglePack(e, out, rest[0])
 	}
-	return validateEnvironment(out, e.cwd())
+	return validateEnvironment(e, out)
 }
 
 // validateSinglePack validates one pack in isolation.
-func validateSinglePack(out *cliout.Writer, target string) error {
-	var d diag.Diagnostics
+func validateSinglePack(e *Env, out *cliout.Writer, target string) error {
+	d := e.baseDiags()
 
 	abs, err := filepath.Abs(target)
 	if err != nil {
@@ -121,8 +120,11 @@ func validateSinglePack(out *cliout.Writer, target string) error {
 }
 
 // validateEnvironment validates the active core/user/project environment.
-func validateEnvironment(out *cliout.Writer, cwd string) error {
-	environment, d := env.Load(cwd)
+func validateEnvironment(e *Env, out *cliout.Writer) error {
+	d := e.baseDiags()
+
+	environment, ed := env.LoadWithOptions(e.cwd(), env.Options{Manifest: e.manifest()})
+	d.Extend(ed)
 	if environment == nil {
 		out.Emit(false, d, nil)
 		return Failure
