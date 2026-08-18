@@ -76,10 +76,11 @@ func runResolve(e *Env, args []string) error {
 	}
 
 	resolution, rd := resolve.Resolve(resolve.Input{
-		Packs:        environment.Packs,
-		ProjectRoot:  environment.ProjectRoot,
-		Home:         environment.Home,
-		ExcludeRoots: excludeRoots(environment.ProjectRoot),
+		Packs:          environment.Packs,
+		ProjectRoot:    environment.ProjectRoot,
+		Home:           environment.Home,
+		ExcludeRoots:   excludeRoots(environment.ProjectRoot),
+		ExtraSkillDirs: extraSkillDirs(environment.ProjectRoot, environment.Home),
 	})
 	d.Extend(rd)
 	if resolution == nil {

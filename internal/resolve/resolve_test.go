@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/mwenkdev/structured-vibe/internal/diag"
+	"github.com/mwenkdev/structured-vibe/internal/hostskills"
 	"github.com/mwenkdev/structured-vibe/internal/pack"
 	"github.com/mwenkdev/structured-vibe/internal/scope"
 	"github.com/mwenkdev/structured-vibe/internal/skill"
@@ -239,4 +240,74 @@ func hasCode(d diag.Diagnostics, code string) bool {
 		}
 	}
 	return false
+}
+
+// TestCollisionAcrossConfiguredSkillPaths covers a second skills.paths entry
+// serving the same skill name.
+//
+// The host scans every configured path and resolves duplicate names by race,
+// so a collision between two configured paths is exactly as nondeterministic
+// as one against .claude or .agents.
+func TestCollisionAcrossConfiguredSkillPaths(t *testing.T) {
+	other := t.TempDir()
+
+	// The host scans configured paths recursively, so a skill nested below
+	// the configured root still collides.
+	dir := filepath.Join(other, "group", "java-backend")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: java-backend\ndescription: A competing definition.\n---\nbody\n"
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	in := Input{
+		Packs:       []*pack.Pack{mkPack("core-pack", scope.Core, "java-backend", "testing")},
+		ProjectRoot: t.TempDir(),
+		ExtraSkillDirs: []hostskills.ExtraDir{
+			{Dir: other, Origin: "opencode skills.paths entry", Recursive: true},
+		},
+	}
+
+	r, d := Resolve(in)
+	if d.HasErrors() {
+		t.Fatalf("unexpected errors: %+v", d.Errors())
+	}
+	if r == nil {
+		t.Fatal("a collision must warn, not fail")
+	}
+	if !hasCode(d.Warnings(), "resolve.host-collision") {
+		t.Errorf("want resolve.host-collision, got %+v", d.Warnings())
+	}
+	if n := len(d.Warnings()); n != 1 {
+		t.Errorf("only the colliding skill should warn, got %d: %+v", n, d.Warnings())
+	}
+}
+
+// TestNoCollisionWhenConfiguredPathIsDisjoint keeps the warning from becoming
+// noise.
+func TestNoCollisionWhenConfiguredPathIsDisjoint(t *testing.T) {
+	other := t.TempDir()
+	dir := filepath.Join(other, "unrelated-skill")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: unrelated-skill\ndescription: Does not collide.\n---\nbody\n"
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	in := Input{
+		Packs:       []*pack.Pack{mkPack("core-pack", scope.Core, "java-backend")},
+		ProjectRoot: t.TempDir(),
+		ExtraSkillDirs: []hostskills.ExtraDir{
+			{Dir: other, Origin: "opencode skills.paths entry", Recursive: true},
+		},
+	}
+
+	_, d := Resolve(in)
+	if len(d.Warnings()) != 0 {
+		t.Errorf("unexpected warnings: %+v", d.Warnings())
+	}
 }
