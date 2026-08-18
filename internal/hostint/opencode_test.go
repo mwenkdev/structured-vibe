@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mwenkdev/structured-vibe/internal/paths"
@@ -322,5 +323,107 @@ func TestStripJSONComments(t *testing.T) {
 				t.Errorf("%s = %v, want %q", tt.wantKey, cfg[tt.wantKey], tt.wantVal)
 			}
 		})
+	}
+}
+
+func TestInstallCopiesShippedIntegration(t *testing.T) {
+	configHome := t.TempDir()
+	home := t.TempDir()
+
+	src := filepath.Join(configHome, filepath.FromSlash(ManagedPluginPath))
+	if err := os.MkdirAll(filepath.Dir(src), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "export default async () => ({})\n"
+	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dst, d := Install(configHome, home)
+	if d.HasErrors() {
+		t.Fatalf("install failed: %+v", d.Errors())
+	}
+	if dst != InstalledPluginPath(home) {
+		t.Errorf("installed to %q", dst)
+	}
+
+	raw, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != body {
+		t.Errorf("content = %q", raw)
+	}
+
+	// The freshly installed integration must satisfy verification.
+	if vd := VerifyIntegration(home); vd.HasErrors() {
+		t.Errorf("installed integration does not verify: %+v", vd.Errors())
+	}
+}
+
+// TestInstallLeavesNoTemporaryFiles guards the staged write.
+func TestInstallLeavesNoTemporaryFiles(t *testing.T) {
+	configHome := t.TempDir()
+	home := t.TempDir()
+
+	src := filepath.Join(configHome, filepath.FromSlash(ManagedPluginPath))
+	if err := os.MkdirAll(filepath.Dir(src), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src, []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, d := Install(configHome, home); d.HasErrors() {
+		t.Fatal(d.Errors())
+	}
+
+	entries, err := os.ReadDir(UserPluginDir(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".") {
+			t.Errorf("temporary file left behind: %s", e.Name())
+		}
+	}
+}
+
+func TestInstallFailsWithoutShippedPayload(t *testing.T) {
+	_, d := Install(t.TempDir(), t.TempDir())
+	if !d.HasErrors() {
+		t.Error("expected an error when the release ships no integration")
+	}
+}
+
+func TestInstalledMatchesRelease(t *testing.T) {
+	configHome := t.TempDir()
+	home := t.TempDir()
+
+	src := filepath.Join(configHome, filepath.FromSlash(ManagedPluginPath))
+	if err := os.MkdirAll(filepath.Dir(src), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src, []byte("current\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Nothing installed yet.
+	if matches, installed := InstalledMatchesRelease(configHome, home); matches || installed {
+		t.Error("expected not installed")
+	}
+
+	if _, d := Install(configHome, home); d.HasErrors() {
+		t.Fatal(d.Errors())
+	}
+	if matches, installed := InstalledMatchesRelease(configHome, home); !matches || !installed {
+		t.Error("expected a match after install")
+	}
+
+	// An integration from an older release.
+	if err := os.WriteFile(InstalledPluginPath(home), []byte("older\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if matches, installed := InstalledMatchesRelease(configHome, home); matches || !installed {
+		t.Error("expected installed but not matching")
 	}
 }

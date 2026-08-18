@@ -29,6 +29,20 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # The OpenCode integration is part of the managed runtime payload, so it
+      # must be built before the managed manifest is generated or verified.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: integrations/opencode/package-lock.json
+
+      - name: build opencode integration
+        run: make plugin
+
+      - name: typecheck opencode integration
+        run: make plugin-typecheck
+
       - name: gofmt
         run: make fmt-check
 

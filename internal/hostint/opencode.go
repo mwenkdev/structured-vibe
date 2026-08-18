@@ -8,6 +8,7 @@
 package hostint
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -38,6 +39,91 @@ func InstalledPluginPath(home string) string {
 // UserConfigPath is the OpenCode global config.
 func UserConfigPath(home string) string {
 	return filepath.Join(home, ".config", "opencode", "opencode.json")
+}
+
+// ManagedPluginPath is the shipped integration inside the svibe config root,
+// relative to that root. It is part of the managed runtime payload.
+const ManagedPluginPath = "integrations/opencode/" + PluginFileName
+
+// Install copies the shipped integration to the host's user-level plugin
+// directory.
+//
+// The integration is installed at user scope rather than once per repository:
+// it is generic infrastructure, and project-specific behavior comes from the
+// active repository and the generated snapshot (architecture 12.2).
+func Install(configHome, home string) (installedTo string, d diag.Diagnostics) {
+	if home == "" {
+		d.Errorf("hostint.no-home", "", "cannot determine the user home directory")
+		return "", d
+	}
+
+	src := filepath.Join(configHome, filepath.FromSlash(ManagedPluginPath))
+	raw, err := os.ReadFile(src)
+	if err != nil {
+		d.Errorf("hostint.payload-missing", src,
+			"the svibe release does not contain an OpenCode integration to install: %v; "+
+				"reinstall or update the release", err)
+		return "", d
+	}
+
+	dir := UserPluginDir(home)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		d.Errorf("hostint.install.mkdir", dir, "cannot create the plugin directory: %v", err)
+		return "", d
+	}
+
+	dst := filepath.Join(dir, PluginFileName)
+
+	// Write through a temporary file so a partial write never leaves the host
+	// loading a truncated plugin.
+	tmp, err := os.CreateTemp(dir, "."+PluginFileName+".tmp-*")
+	if err != nil {
+		d.Errorf("hostint.install.temp", dir, "cannot stage the integration: %v", err)
+		return "", d
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+
+	if _, err := tmp.Write(raw); err != nil {
+		_ = tmp.Close()
+		d.Errorf("hostint.install.write", tmpName, "cannot write the integration: %v", err)
+		return "", d
+	}
+	if err := tmp.Close(); err != nil {
+		d.Errorf("hostint.install.write", tmpName, "cannot write the integration: %v", err)
+		return "", d
+	}
+	// CreateTemp uses 0600. The host must be able to read the plugin under a
+	// normal umask, so widen it to the mode an ordinary install would have.
+	if err := os.Chmod(tmpName, 0o644); err != nil {
+		d.Errorf("hostint.install.chmod", tmpName, "cannot set integration permissions: %v", err)
+		return "", d
+	}
+	if err := os.Rename(tmpName, dst); err != nil {
+		d.Errorf("hostint.install.publish", dst, "cannot install the integration: %v", err)
+		return "", d
+	}
+	return dst, d
+}
+
+// InstalledMatchesRelease reports whether the installed integration is byte
+// identical to the one shipped with the running svibe.
+//
+// The installed release owns the compatible integration version; v1 does not
+// maintain an independent compatibility matrix (architecture 12.3).
+func InstalledMatchesRelease(configHome, home string) (matches bool, installed bool) {
+	if home == "" {
+		return false, false
+	}
+	want, err := os.ReadFile(filepath.Join(configHome, filepath.FromSlash(ManagedPluginPath)))
+	if err != nil {
+		return false, false
+	}
+	got, err := os.ReadFile(InstalledPluginPath(home))
+	if err != nil {
+		return false, false
+	}
+	return bytes.Equal(want, got), true
 }
 
 // VerifyIntegration reports whether the OpenCode integration is installed.
