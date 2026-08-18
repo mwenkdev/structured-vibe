@@ -20,3 +20,6 @@ integrations/opencode/dist/
 
 # Local development managed payload
 /.dev/
+
+# Plugin dependencies (lockfile is committed for reproducible builds)
+integrations/opencode/node_modules/

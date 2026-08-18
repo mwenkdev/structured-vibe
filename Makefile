@@ -45,8 +45,24 @@ lint:
 		echo "golangci-lint not installed; skipping"; \
 	fi
 
+PLUGIN_DIR := integrations/opencode
+PLUGIN_ARTIFACT := $(PLUGIN_DIR)/dist/svibe.js
+
+# Builds the OpenCode integration from source. The built artifact is part of
+# the managed runtime payload, so it must exist before the managed manifest is
+# generated. Uses npm ci against the committed lockfile for reproducibility:
+# a differing compiler version would change the artifact and its hash.
+.PHONY: plugin
+plugin:
+	@cd $(PLUGIN_DIR) && npm ci --no-audit --no-fund >/dev/null && npm run build >/dev/null
+	@echo "built $(PLUGIN_ARTIFACT)"
+
+.PHONY: plugin-typecheck
+plugin-typecheck:
+	@cd $(PLUGIN_DIR) && npm ci --no-audit --no-fund >/dev/null && npm run typecheck
+
 .PHONY: generate
-generate:
+generate: plugin
 	$(GO) generate ./...
 
 # Regenerates managed-file metadata and fails if the result differs from what
@@ -58,7 +74,7 @@ generate:
 GEN_FILES = $(shell find . -name '*_gen.go' -not -path './.dev/*' -not -path './bin/*' | sort)
 
 .PHONY: generate-check
-generate-check:
+generate-check: plugin
 	@before=$$(cat $(GEN_FILES) 2>/dev/null | sha256sum); \
 	$(GO) generate ./... >/dev/null; \
 	after=$$(cat $(GEN_FILES) 2>/dev/null | sha256sum); \
@@ -81,14 +97,15 @@ check: fmt-check vet lint test
 SVIBE_DEV_HOME ?= $(CURDIR)/.dev/svibe
 
 .PHONY: install-dev
-install-dev: build
+install-dev: build plugin
 	@rm -rf '$(SVIBE_DEV_HOME)'
-	@mkdir -p '$(SVIBE_DEV_HOME)/config'
+	@mkdir -p '$(SVIBE_DEV_HOME)/config' '$(SVIBE_DEV_HOME)/integrations/opencode'
 	@cp -R core '$(SVIBE_DEV_HOME)/core'
 	@cp config/models.yaml '$(SVIBE_DEV_HOME)/config/models.yaml'
+	@cp $(PLUGIN_ARTIFACT) '$(SVIBE_DEV_HOME)/integrations/opencode/svibe.js'
 	@echo "installed managed payload to $(SVIBE_DEV_HOME)"
 	@echo "run: SVIBE_CONFIG_HOME='$(SVIBE_DEV_HOME)' $(BINARY) status"
 
 .PHONY: clean
 clean:
-	rm -rf $(BIN_DIR) dist .dev
+	rm -rf $(BIN_DIR) dist .dev $(PLUGIN_DIR)/dist

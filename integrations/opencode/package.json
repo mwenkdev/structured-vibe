@@ -1,0 +1,14 @@
+{
+  "name": "@structured-vibe/opencode-integration",
+  "private": true,
+  "type": "module",
+  "description": "Structured Vibe integration for OpenCode. Built output is produced by the release pipeline and is not committed.",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.18.15",
+    "typescript": "5.7.3"
+  }
+}

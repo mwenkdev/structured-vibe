@@ -66,6 +66,7 @@ var commands = []Command{
 	{Name: "advise", Summary: "compare a skill's capability recommendation to a model", Run: runAdvise},
 	{Name: "sync", Summary: "publish the resolved skill snapshot for the host", Run: runSync},
 	{Name: "status", Summary: "report whether generated output is current", Run: runStatus},
+	{Name: "admin", Summary: "install or update host integrations (setup, update)", Run: runAdmin},
 	{Name: "version", Summary: "print the svibe version", Run: runVersion},
 }
 

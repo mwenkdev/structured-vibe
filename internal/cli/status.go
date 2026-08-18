@@ -43,6 +43,9 @@ type statusResult struct {
 	// The CLI version is also the resolver/rules version.
 	VersionDrift bool `json:"version_drift"`
 
+	// SnapshotRelPath is the repo-relative path registered in skills.paths.
+	SnapshotRelPath string `json:"snapshot_rel_path"`
+
 	IntegrationInstalled bool   `json:"integration_installed"`
 	IntegrationPath      string `json:"integration_path,omitempty"`
 	Registered           bool   `json:"snapshot_registered"`
@@ -108,12 +111,13 @@ func runStatus(e *Env, args []string) error {
 	}
 
 	res := &statusResult{
-		ProjectRoot:  p.env.ProjectRoot,
-		ConfigHome:   p.env.ConfigHome,
-		SnapshotRoot: p.snapshotRoot,
-		SkillCount:   len(p.resolution.Skills),
-		Fingerprint:  p.fingerprint,
-		SvibeVersion: buildinfo.Version,
+		ProjectRoot:     p.env.ProjectRoot,
+		ConfigHome:      p.env.ConfigHome,
+		SnapshotRoot:    p.snapshotRoot,
+		SkillCount:      len(p.resolution.Skills),
+		Fingerprint:     p.fingerprint,
+		SvibeVersion:    buildinfo.Version,
+		SnapshotRelPath: paths.OpenCodeSkillsRelPath,
 	}
 
 	res.State = evaluateSnapshot(p.snapshotRoot, p.fingerprint, res)

@@ -27,6 +27,9 @@ import (
 var managedRoots = []struct{ repo, install string }{
 	{repo: "core", install: "core"},
 	{repo: "config", install: "config"},
+	// Built integration output. It is produced by "make plugin" and is not
+	// committed, so "make generate" depends on the plugin being built first.
+	{repo: "integrations/opencode/dist", install: "integrations/opencode"},
 }
 
 func main() {
