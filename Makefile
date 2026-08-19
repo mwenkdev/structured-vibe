@@ -37,13 +37,27 @@ fmt-check:
 		echo "gofmt needed for:"; echo "$$out"; exit 1; \
 	fi
 
+# Pinned so local runs and CI use the same linter. .golangci.yml uses the v2
+# config schema, which golangci-lint v1 rejects outright.
+GOLANGCI_VERSION := v2.5.0
+
 .PHONY: lint
 lint:
 	@if command -v golangci-lint >/dev/null 2>&1; then \
+		have=$$(golangci-lint --version 2>/dev/null | grep -o 'version [0-9][^ ]*' | cut -d' ' -f2); \
+		want=$$(printf '%s' '$(GOLANGCI_VERSION)' | sed 's/^v//'); \
+		if [ "$$have" != "$$want" ]; then \
+			echo "warning: golangci-lint $$have installed, CI uses $$want"; \
+			echo "  install the pinned version with: make lint-install"; \
+		fi; \
 		golangci-lint run; \
 	else \
-		echo "golangci-lint not installed; skipping"; \
+		echo "golangci-lint not installed; run 'make lint-install' to match CI"; \
 	fi
+
+.PHONY: lint-install
+lint-install:
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 
 PLUGIN_DIR := integrations/opencode
 PLUGIN_ARTIFACT := $(PLUGIN_DIR)/dist/svibe.js

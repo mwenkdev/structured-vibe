@@ -49,9 +49,12 @@ jobs:
       - name: go vet
         run: make vet
 
-      - uses: golangci/golangci-lint-action@v6
+      # Pinned, and matching GOLANGCI_VERSION in the Makefile. The v2 config
+      # schema in .golangci.yml is rejected by golangci-lint v1, so an
+      # unpinned action version silently breaks CI while local runs pass.
+      - uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: v2.5.0
 
       - name: test
         run: make test
