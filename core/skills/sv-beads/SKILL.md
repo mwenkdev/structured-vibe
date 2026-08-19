@@ -1,9 +1,6 @@
 ---
 name: sv-beads
 description: Use when converting an approved specification or milestone into a bd epic and dependency graph of executable work units. Triggers on "break this down", "create the beads", "decompose this milestone", or a handoff from sv-plan after review. Produces coherent beads carrying the full execution contract, correct dependencies, and a planned minimum executor tier.
-recommends:
-  - sv-plan
-  - sv-finalize
 minimum_driver_tier: B
 ---
 

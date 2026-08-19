@@ -6,12 +6,12 @@ package managed
 // keyed by path relative to the svibe config root.
 var expected = map[string]string{
 	"config/models.yaml":               "4f98628b2914888866a4b1d49ee63085025ba9a39c6ed5ff7a86cbdf0a746c3a",
-	"core/skills/sv-beads/SKILL.md":    "0328c6ae4fa8b8adb1b2752c381867ed77c5de21f500090fffc03e795906ae23",
-	"core/skills/sv-execute/SKILL.md":  "f43ca3fdf3c97f370b39a51f3b3a50bdc3221791439c302bd519e07b889220c8",
-	"core/skills/sv-finalize/SKILL.md": "fccf43f165c424074c60e45497b629ff54a4d2f924074b3daee9e73b236b0a84",
-	"core/skills/sv-plan/SKILL.md":     "295beb6a9b56180dfefa695597880def8f7011eb1059f44bd0296cb562be698d",
-	"core/skills/sv-review/SKILL.md":   "17a3579d8e0e471176dfc1625d8f2fcb1ea9c5754d24ff822ab92fd9cb69d8f5",
-	"core/skills/sv-verify/SKILL.md":   "16e6c759779526f2326c3703e571cf6d87eac87c7dda2ae7afb7f4ba4c371a7e",
+	"core/skills/sv-beads/SKILL.md":    "ba1fee94d46858dc69942230c9d32f57b0670e5c92cf07aeeaf844ee31af04e5",
+	"core/skills/sv-execute/SKILL.md":  "f5d24acc9b6989af1d4cf733bc94f8d4ba93ccef8b567940bdeac7c7bb758a7e",
+	"core/skills/sv-finalize/SKILL.md": "ded2787220cb85a35b08facc14276df3c4090e0d14e5a685620206c474039398",
+	"core/skills/sv-plan/SKILL.md":     "8850cdc24eef5c01d780553f35a8aeb9ce0713341d5d23f61c22373f742ae1b3",
+	"core/skills/sv-review/SKILL.md":   "60d017da386012b8e7422e99fb3b09c18e6ccba1ad6f2af82ae8c5ed865fadea",
+	"core/skills/sv-verify/SKILL.md":   "62cfa2a69a6335fd1fe2b28b13862c1001d8316cb7b806fa0d99d1e097996e06",
 	"core/structured-vibe.yaml":        "4711fa90d1bbde55d198217c0e2a7a30a6f594a379dd5cf1ca7814a64fa64470",
 	"integrations/opencode/svibe.js":   "91d557b0761b40e59d74841b255668b32851e909284b0277fb2ba355a918a907",
 }

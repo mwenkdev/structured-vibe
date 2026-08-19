@@ -1,9 +1,6 @@
 ---
 name: sv-finalize
 description: Use when preparing one ready bead for execution against the current repository state, just before implementation begins. Triggers on "finalize this bead", "get this ready to execute", or picking up the next ready bead from bd. Checks the bead against current HEAD, derives required skills, computes the effective executor tier, and produces an execution packet or blocks the bead.
-recommends:
-  - sv-beads
-  - sv-execute
 minimum_driver_tier: B
 ---
 

@@ -54,9 +54,6 @@ func TestLoadOptionalMetadata(t *testing.T) {
 	sd := writeSkill(t, root, "kubernetes-change", `---
 name: kubernetes-change
 description: Production Kubernetes change procedure.
-recommends:
-  - testing
-  - documentation
 minimum_driver_tier: B
 ---
 body
@@ -68,9 +65,6 @@ body
 	}
 	if s.MinimumDriverTier != "B" {
 		t.Errorf("tier = %q, want B", s.MinimumDriverTier)
-	}
-	if len(s.Recommends) != 2 {
-		t.Errorf("recommends = %v", s.Recommends)
 	}
 }
 
@@ -141,12 +135,6 @@ func TestLoadValidationErrors(t *testing.T) {
 			dir:     "thing",
 			body:    "---\nname: thing\ndescription: ok.\nminimum_driver_tier: D\n---\nbody\n",
 			wantErr: "skill.tier.invalid",
-		},
-		{
-			name:    "invalid recommendation id",
-			dir:     "thing",
-			body:    "---\nname: thing\ndescription: ok.\nrecommends:\n  - Not_Valid\n---\nbody\n",
-			wantErr: "skill.recommends.invalid",
 		},
 	}
 

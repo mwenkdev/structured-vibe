@@ -1,9 +1,6 @@
 ---
 name: sv-plan
 description: Use when turning an idea, feature request, or pile of artifacts into a high-level specification before any code is written. Triggers on "plan this", "spec this out", "write a specification", "what should we build", or the start of a new feature or project. Produces a structured specification with explicit decisions, milestones, and open questions, and asks consequential questions rather than inventing answers.
-recommends:
-  - sv-review
-  - sv-beads
 minimum_driver_tier: A
 ---
 
