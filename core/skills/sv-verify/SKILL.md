@@ -1,8 +1,6 @@
 ---
 name: sv-verify
 description: Use when independently checking whether a completed implementation actually satisfies its finalized bead, before the bead is closed. Triggers on "verify this bead", "check this implementation", "is this actually done", or a handoff from sv-execute. Compares the diff against acceptance criteria in fresh context, looks for weakened tests and scope drift, and may approve, reject, or escalate.
-recommends:
-  - sv-execute
 minimum_driver_tier: B
 ---
 

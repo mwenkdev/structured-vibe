@@ -3,7 +3,7 @@
 // A skill is a directory containing SKILL.md. The directory name is the skill
 // ID and must exactly match the name declared in frontmatter (architecture
 // 8.1). A skill is self-contained: it may only rely on files bundled beneath
-// its own directory (architecture 8.4).
+// its own directory (architecture 8.3).
 package skill
 
 import (
@@ -45,23 +45,21 @@ var ValidTiers = []string{"A", "B", "C"}
 
 // Frontmatter is the recognized SKILL.md metadata.
 //
-// name and description are required. recommends and minimum_driver_tier are
-// optional and omitted when empty. The host ignores unknown frontmatter
-// fields, so the Structured Vibe fields travel safely inside a snapshot the
-// host consumes natively.
+// name and description are required. minimum_driver_tier is optional and
+// omitted when empty. The host ignores unknown frontmatter fields, so the
+// Structured Vibe fields travel safely inside a snapshot the host consumes
+// natively.
 type Frontmatter struct {
-	Name              string   `yaml:"name"`
-	Description       string   `yaml:"description"`
-	Recommends        []string `yaml:"recommends,omitempty"`
-	MinimumDriverTier string   `yaml:"minimum_driver_tier,omitempty"`
+	Name              string `yaml:"name"`
+	Description       string `yaml:"description"`
+	MinimumDriverTier string `yaml:"minimum_driver_tier,omitempty"`
 }
 
 // Skill is one loaded, validated skill.
 type Skill struct {
-	Name              string   `json:"name"`
-	Description       string   `json:"description"`
-	Recommends        []string `json:"recommends,omitempty"`
-	MinimumDriverTier string   `json:"minimum_driver_tier,omitempty"`
+	Name              string `json:"name"`
+	Description       string `json:"description"`
+	MinimumDriverTier string `json:"minimum_driver_tier,omitempty"`
 
 	// Dir is the skill directory; Path is its SKILL.md.
 	Dir  string `json:"-"`
@@ -122,13 +120,6 @@ func Load(dir string) (*Skill, diag.Diagnostics) {
 			"minimum_driver_tier %q is not one of %s", fm.MinimumDriverTier, strings.Join(ValidTiers, ", "))
 	}
 
-	for _, r := range fm.Recommends {
-		if !ValidID(r) {
-			d.Errorf("skill.recommends.invalid", path,
-				"recommended skill ID %q must be lowercase kebab-case", r)
-		}
-	}
-
 	d.Extend(checkContainment(dir))
 
 	if d.HasErrors() {
@@ -138,7 +129,6 @@ func Load(dir string) (*Skill, diag.Diagnostics) {
 	return &Skill{
 		Name:              fm.Name,
 		Description:       fm.Description,
-		Recommends:        fm.Recommends,
 		MinimumDriverTier: fm.MinimumDriverTier,
 		Dir:               dir,
 		Path:              path,

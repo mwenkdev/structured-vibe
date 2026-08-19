@@ -389,14 +389,8 @@ Every skill requires:
 Optional metadata includes:
 
 ```yaml
-recommends:
-  - testing
-  - documentation
-
 minimum_driver_tier: B
 ```
-
-`recommends` is optional and omitted when empty.
 
 `minimum_driver_tier` is optional and omitted when the skill has no declared capability recommendation.
 
@@ -410,34 +404,7 @@ C
 
 `unknown` is not a tier. It is the state produced when the current model cannot be mapped by the model registry.
 
-### 8.3 Recommendations are hints, not dependencies
-
-A skill may recommend other exact skill IDs.
-
-Recommendations do not:
-
-- make a skill unavailable;
-- cause validation failure when the recommended skill is absent;
-- force transitive skill loading;
-- automatically load the recommended skill.
-
-The LLM decides which available skills are useful for the current work.
-
-Example:
-
-```yaml
-recommends:
-  - documentation
-  - testing
-```
-
-means those skills should be visible as potentially useful collaborators if they are available.
-
-If they are absent, the current skill still works and the LLM does the best it can without them.
-
-V1 does not implement abstract capability matching.
-
-### 8.4 Skill containment
+### 8.3 Skill containment
 
 A skill is self-contained.
 

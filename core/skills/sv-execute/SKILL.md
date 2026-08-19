@@ -1,9 +1,6 @@
 ---
 name: sv-execute
 description: Use when implementing a finalized bead from an execution packet produced by sv-finalize. Triggers on "execute this bead", "implement this packet", or picking up finalized work. Implements the specified behavior using the selected skills, validates it, and escalates consequential conflicts rather than redesigning approved decisions.
-recommends:
-  - sv-finalize
-  - sv-verify
 minimum_driver_tier: C
 ---
 

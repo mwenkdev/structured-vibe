@@ -1,8 +1,6 @@
 ---
 name: sv-review
 description: Use when independently challenging an existing specification, design document, or plan before work is decomposed or implemented. Triggers on "review this spec", "poke holes in this", "critique this design", or a handoff from sv-plan. Produces bounded, severity-classified findings and is explicitly allowed to report that nothing material is wrong.
-recommends:
-  - sv-plan
 minimum_driver_tier: A
 ---
 

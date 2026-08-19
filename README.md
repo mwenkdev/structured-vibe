@@ -186,6 +186,12 @@ Run the development binary against its local payload:
 SVIBE_CONFIG_HOME="$PWD/.dev/svibe" ./bin/svibe status
 ```
 
+**Editing `core/` does not affect your own session.** The core pack is managed
+runtime payload owned by the installed release, so `svibe` resolves it from
+your config root, not from this working tree. Changes to `core/skills/` ship in
+the next release. To exercise them locally, run `make install-dev` and point
+`SVIBE_CONFIG_HOME` at `.dev/svibe` as above.
+
 Generated files must not be hand-edited. `make generate-check` fails if
 generated output has drifted.
 

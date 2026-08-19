@@ -32,10 +32,9 @@ type Origin struct {
 
 // Resolved is one winning skill and the definitions it shadowed.
 type Resolved struct {
-	Name              string   `json:"name"`
-	Description       string   `json:"description"`
-	Recommends        []string `json:"recommends,omitempty"`
-	MinimumDriverTier string   `json:"minimum_driver_tier,omitempty"`
+	Name              string `json:"name"`
+	Description       string `json:"description"`
+	MinimumDriverTier string `json:"minimum_driver_tier,omitempty"`
 
 	Origin   Origin   `json:"origin"`
 	Shadowed []Origin `json:"shadowed,omitempty"`
@@ -169,7 +168,6 @@ func Resolve(in Input) (*Resolution, diag.Diagnostics) {
 		out = append(out, Resolved{
 			Name:              win.sk.Name,
 			Description:       win.sk.Description,
-			Recommends:        win.sk.Recommends,
 			MinimumDriverTier: win.sk.MinimumDriverTier,
 			Origin: Origin{
 				Scope: win.scope.Name,
