@@ -24,7 +24,7 @@ At a high level:
 Structured Vibe is **not an agent harness**. It complements one.
 
 See [Product Principles](docs/PRINCIPLES.md) for the durable design philosophy
-behind the workflow and [Roadmap](ROADMAP.md) for planned capabilities.
+behind the workflow and [Roadmap](docs/ROADMAP.md) for planned capabilities.
 
 ---
 
@@ -156,7 +156,7 @@ tier, and it also warns.
 
 ## Documentation
 
-- [`ROADMAP.md`](ROADMAP.md) — planned product capabilities; roadmap items are
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — planned product capabilities; roadmap items are
   candidates for Beads epics, not release commitments
 - [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) — durable product and workflow
   principles

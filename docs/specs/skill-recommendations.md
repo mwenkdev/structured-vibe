@@ -1,6 +1,6 @@
 # Decision: Remove `recommends` from the Skill Contract
 
-**Status:** Decided, pending review
+**Status:** Implemented in M7 (bead `sv-i1j.8`, commit `f2e9e8b`); merged to `main`, not in the 0.1.0 release
 **Produced by:** `sv-plan`, adjudicated by Mike
 
 ## Purpose

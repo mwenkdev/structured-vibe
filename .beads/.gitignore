@@ -16,6 +16,10 @@ daemon.*
 # Push state (runtime, per-machine)
 push-state.json
 
+# Dolt backup sync state (runtime, per-machine; the destination config in
+# dolt-backup.json IS tracked)
+dolt-backup-state.json
+
 # Lock files (various runtime locks)
 *.lock
 
