@@ -1,642 +1,180 @@
 # Structured Vibe Roadmap
 
-## Purpose
+This roadmap tracks product capabilities Structured Vibe may add over time.
 
-Structured Vibe should help a human and AI produce a high-confidence implementation plan, then execute that plan with as little mechanical human intervention as possible.
+It is intentionally **not** a release plan. Roadmap items are candidates for
+Beads epics; releases are cut from the set of completed work that is ready to
+ship.
 
-The human should make decisions.
+Implementation details, sequencing, acceptance criteria, and decomposition
+belong in the corresponding Beads epic and its plan, not in this document.
 
-The human should not have to act as a workflow scheduler.
+## Near-term capabilities
 
-The core direction is to separate Structured Vibe into two distinct modes:
+### Autonomous epic execution
 
-1. **Planning** — deliberate, interactive, review-heavy.
-2. **Execution** — autonomous, durable, and epic-scoped.
+Add a host workflow such as `/svibe:do <epic>` that carries an approved epic
+forward until either:
 
----
+- all child work is complete and verified, or
+- meaningful human input is required.
 
-## Guiding Principles
+The workflow should consume ready Beads work, execute it, verify it, repair
+straightforward failures, and continue without requiring the human to advance
+each mechanical lifecycle step manually.
 
-### 1. Human judgment over human button-pushing
+### Document-to-Beads decomposition
 
-Structured Vibe should interrupt the user when judgment is required, not simply because another workflow phase is ready.
+Allow Structured Vibe to turn a roadmap, specification, design document, or
+similar artifact into a proposed Beads structure.
 
-Bad:
+The workflow should propose epics, tasks, dependencies, and acceptance criteria
+for human review before materializing them. It should avoid creating a second
+project-management system alongside Beads.
 
-```text
-/svibe:finalize
-/svibe:execute
-/svibe:verify
-/svibe:execute
-/svibe:verify
-```
+### Blocker diagnosis and unblock guidance
 
-Target:
+When work cannot proceed, explain why rather than merely reporting that no task
+is ready.
 
-```text
-/svibe:plan <epic>
-/svibe:review <epic>
-...repeat as needed...
-/svibe:do <epic>
-```
+Structured Vibe should be able to trace blocking dependencies, distinguish
+technical blockers from external dependencies and human decisions, and suggest
+a concrete path to resume work.
 
-After `/svibe:do`, Structured Vibe should continue until:
+### Command and identifier completion
 
-- the epic is complete, or
-- it reaches a blocker that requires human input.
-
-### 2. The epic is the unit of execution
-
-Planning produces an executable epic.
-
-Execution consumes the executable epic.
-
-The epic should contain or reference enough durable state that execution does not depend on preserving the original planning conversation.
-
-### 3. Fresh context is a feature
-
-Planning and review benefit from independent perspectives.
-
-Execution tasks should be able to run in fresh contexts using durable artifacts rather than inheriting an ever-growing chat history.
-
-### 4. Verification is part of execution
-
-Verification should remain a first-class operation, but should not normally require the human to invoke it manually during an execution run.
-
-### 5. Interrupt only for meaningful decisions
-
-Structured Vibe should automatically handle routine implementation and repair work.
-
-It should stop for:
-
-- material scope changes,
-- unresolved product or architecture decisions,
-- destructive or risky operations that require approval,
-- missing credentials or external access,
-- plan-defined human checkpoints,
-- blockers it cannot safely resolve,
-- repeated verification failures that indicate the plan may be wrong.
-
----
-
-# Target Workflow
-
-## Planning Workflow
-
-Planning remains intentionally interactive.
-
-```text
-1. /svibe:plan <epic>
-2. /svibe:review <epic>
-3. Return to step 1 until the human and AI are satisfied
-```
-
-This loop should optimize for plan quality, not automation.
-
-A typical flow may look like:
-
-```text
-/svibe:plan PM-12
-/svibe:review PM-12
-/svibe:plan PM-12
-/svibe:review PM-12
-
-# human accepts plan
-
-/svibe:do PM-12
-```
-
-## Review Independence
-
-Where supported by the agent harness, planning and review should use independent models and/or fresh contexts.
-
-Desired shape:
-
-```text
-Plan:    Model A, Context A
-Review:  Model B, Fresh Context B
-Revise:  Model A or C, Context C
-```
-
-The reviewer should primarily evaluate the artifact itself rather than inherit the conversational momentum that produced it.
-
-This should be capability-driven rather than hard-coded to specific provider/model names.
-
----
-
-# Executable Epic
-
-Before execution begins, the epic should be considered an executable artifact.
-
-An execution-ready epic should include:
-
-- approved plan,
-- child tasks,
-- task dependencies,
-- acceptance criteria,
-- epic-level completion criteria,
-- known external dependencies,
-- known human checkpoints,
-- execution policy,
-- enough context to reconstruct task-specific prompts.
-
-Example conceptual structure:
-
-```text
-Epic
-├── approved plan
-├── acceptance criteria
-├── execution policy
-├── child task graph
-├── known blockers
-├── human checkpoints
-└── completion criteria
-```
-
-The exact storage format is TBD.
-
-Possible sources of truth include:
-
-- Beads epic/task metadata,
-- checked-in Structured Vibe artifact files,
-- a small `.svibe/` state directory,
-- or a combination of the above.
-
-Avoid creating a second project-management system if Beads already provides the durable task graph.
-
----
-
-# `/svibe:do <epic>`
-
-## Contract
-
-`/svibe:do <epic>` means:
-
-> Carry this approved epic forward until it is complete or meaningful human input is required.
-
-It replaces the current user-facing finalize/execute/verify ceremony.
-
-Finalize may still exist internally, but should not normally be a user-visible lifecycle step.
-
-## Execution Loop
-
-Conceptually:
-
-```text
-while epic is open:
-    ready = find_ready_subtasks(epic)
-
-    if ready tasks exist:
-        select next task
-        execute task
-        verify task
-
-        if verification passes:
-            mark task complete
-            continue
-
-        if verification finds a straightforward fix:
-            fix
-            re-verify
-            continue
-
-        if verification requires judgment:
-            report and stop
-
-    else if all epic tasks are complete:
-        run epic-level verification
-
-        if epic verification passes:
-            close epic
-            report completion
-            stop
-
-        if findings are straightforward:
-            create/activate repair work
-            continue
-
-        otherwise:
-            report and stop
-
-    else:
-        diagnose blockers
-        report blocked state
-        propose an unblock plan
-        stop
-```
-
----
-
-# Blocked-State Behavior
-
-A blocked epic should never result in a useless message such as:
-
-```text
-No tasks are ready.
-```
-
-Structured Vibe should explain:
-
-1. which tasks remain,
-2. why they are blocked,
-3. what dependency chain caused the stop,
-4. whether the blocker is technical, external, or a decision,
-5. what Structured Vibe recommends doing next.
-
-Example:
-
-```text
-Execution stopped.
-
-Blocked tasks:
-- PM-42 depends on PM-37
-- PM-51 requires Stripe credentials
-
-Why no work is ready:
-PM-37 requires an unresolved schema ownership decision.
-
-Recommended unblock:
-1. Decide whether billing ownership belongs to organization or workspace.
-2. Update PM-37 acceptance criteria.
-3. Re-run /svibe:do PM-12.
-```
-
-Where possible, Structured Vibe should propose a concrete unblock plan rather than merely expose task graph state.
-
----
-
-# Context Strategy
-
-## Problem
-
-The planning workflow may contain important reasoning that cannot safely be assumed to remain in context throughout a long execution run.
-
-## Direction
-
-The approved plan should become durable, compiled execution state.
-
-Execution contexts should be reconstructable from artifacts.
-
-A fresh task context should generally contain:
-
-```text
-epic summary
-approved plan
-current task
-task acceptance criteria
-relevant dependency outcomes
-relevant completed-task results
-repo state
-execution policy
-```
-
-It should not require the complete planning conversation.
-
-## Context Isolation
-
-Where supported, each child task may run in a fresh context.
-
-Benefits:
-
-- less context pollution,
-- fewer stale assumptions,
-- more predictable token usage,
-- easier retry behavior,
-- better isolation between unrelated subtasks.
-
-The orchestration layer remains responsible for maintaining durable state between contexts.
-
----
-
-# Verification
-
-Verification remains a first-class Structured Vibe capability.
-
-## During `/svibe:do`
-
-Verification should normally happen automatically after task execution.
-
-Expected loop:
-
-```text
-EXECUTE
-   ↓
-VERIFY
-   ├── pass ───────→ next task
-   ├── fixable ────→ fix → verify again
-   └── judgment ───→ ask human
-```
-
-## Explicit `/svibe:verify`
-
-Keep `/svibe:verify` available for manual use.
-
-Use cases:
-
-- rerun verification after manual changes,
-- verify an existing epic or task without executing it,
-- diagnose a suspicious implementation,
-- CI/workflow integration,
-- debugging Structured Vibe itself.
-
-Add command completion/autocomplete support for `/svibe:verify`.
-
----
-
-# Execution Policy
-
-Structured Vibe should have an explicit execution policy rather than relying on model personality.
-
-Conceptual example:
-
-```yaml
-execution_policy:
-  autonomy: high
-
-  require_user_for:
-    - destructive_operations
-    - material_scope_change
-    - ambiguous_product_decision
-    - credential_or_external_access
-    - plan_defined_checkpoint
-
-  auto_handle:
-    - implementation_choices_within_plan
-    - test_failures
-    - lint_failures
-    - type_errors
-    - straightforward_review_findings
-    - retries
-    - verification_fix_loops
-```
-
-This may eventually be configurable globally, per repo, or per epic.
-
----
-
-# Task Selection
-
-`/svibe:do` should consume ready work from the epic task graph.
-
-Initial behavior can be simple:
-
-1. query ready tasks belonging to the epic,
-2. choose the next valid task,
-3. execute it,
-4. verify it,
-5. mark it complete,
-6. continue.
-
-Future selection strategies may account for:
-
-- dependency depth,
-- task risk,
-- context locality,
-- estimated cost,
-- opportunities for parallel execution,
-- model capability requirements.
-
-Do not optimize prematurely.
-
-Correct durable sequential execution is more important than parallelism.
-
----
-
-# Model and Harness Capabilities
-
-Structured Vibe should detect and use harness capabilities where available.
-
-Potential capabilities:
-
-- switching models,
-- spawning subagents,
-- starting fresh contexts,
-- assigning a model by task type,
-- structured handoff between agents,
-- persistent orchestration state.
-
-Model routing should be capability-based and resilient to provider catalog changes.
-
-Avoid hard-coding model assumptions that quickly become stale.
-
-## Model Tiering
-
-Refresh the model/version capability map across currently available providers.
-
-Known requirement:
-
-- GPT-5.6 Sol should not produce an incorrect lower-tier warning during review.
-- Account for newer model families and versions rather than patching individual names.
-- Prefer capability/tier metadata over brittle string matching.
-
----
-
-# Command UX
-
-## Near-Term Commands
-
-```text
-/svibe:plan <epic>
-/svibe:review <epic>
-/svibe:do <epic>
-/svibe:status <epic>
-/svibe:verify <epic-or-task>
-```
-
-## Command Completion
-
-Add shell/command completion where supported.
-
-Priority:
+Improve host-side completion where supported, including:
 
 - `/svibe:verify`
+- `/svibe:do`
 - epic IDs
 - task IDs
-- `/svibe:do <epic>`
 
-## Deterministic Next-Step Guidance
+Completion behavior should be generated from durable project state rather than
+hard-coded examples.
 
-Until `/svibe:do` fully owns the lifecycle, every command should explicitly report the recommended next action.
+### Deterministic next-step guidance
 
-Do not rely on individual models to remember to suggest the next command.
+Workflow commands should report the recommended next action explicitly when a
+human action is required.
 
-Example:
+The workflow should not depend on an individual model remembering to suggest
+the correct next command.
 
-```text
-Next recommended action: /svibe:review PM-12
-```
+### Model capability metadata
 
-or:
+Refresh model capability and tier handling across supported providers and make
+it resilient to provider catalog changes.
 
-```text
-Plan approved. Ready to run: /svibe:do PM-12
-```
+Known needs include:
 
----
+- correctly classifying current frontier models such as GPT-5.6 Sol,
+- accounting for newer model families and revisions,
+- reducing brittle model-name matching,
+- preferring capability metadata where the host or provider exposes it.
 
-# Proposed Implementation Phases
+## Execution and context capabilities
 
-## Phase 1 — Execution-Ready Planning
+### Durable execution-ready epic state
 
-Goal: make the plan artifact sufficient for autonomous execution.
+Ensure an approved epic contains or references enough durable state to execute
+without depending on the planning conversation remaining in context.
 
-- Define what makes an epic execution-ready.
-- Ensure child tasks and dependencies are explicit.
-- Add task-level acceptance criteria.
-- Add epic-level completion criteria.
-- Record known blockers and human checkpoints.
-- Make `/svibe:review` evaluate execution readiness.
-- Add deterministic next-step guidance.
+This may include the approved plan, child tasks, dependencies, acceptance
+criteria, completion criteria, known external dependencies, and human
+checkpoints. Beads should remain the primary task graph rather than being
+replaced by a parallel Structured Vibe project-management layer.
 
-### Exit Criteria
+### Fresh-context task execution
 
-An approved epic can be understood without the original planning conversation.
+Allow child tasks to execute in fresh contexts while reconstructing the
+necessary task context from durable project artifacts.
 
----
+This should reduce stale assumptions and context pollution during long-running
+epics.
 
-## Phase 2 — `/svibe:do` Sequential Runner
+### Independent planning and review contexts
 
-Goal: remove mechanical lifecycle button-pushing.
+Where the host supports it, allow planning and review to use independent
+contexts and potentially different models so reviews evaluate the artifact
+rather than inherit the conversational momentum that produced it.
 
-- Add `/svibe:do <epic>`.
-- Query ready tasks for the epic.
-- Execute one task at a time.
-- Automatically verify after execution.
-- Auto-fix straightforward findings.
-- Re-verify.
-- Mark successful tasks complete.
-- Continue until complete or blocked.
-- Close the epic after successful epic-level verification.
+### Harness capability detection
 
-### Exit Criteria
+Detect which orchestration capabilities the active host provides, such as:
 
-A user can start `/svibe:do <epic>` and does not need to manually invoke finalize/execute/verify for each task.
+- model switching,
+- fresh contexts,
+- subagents,
+- structured handoff,
+- persistent orchestration state.
 
----
+Structured Vibe should adapt to the host's capabilities rather than assume all
+harnesses expose the same execution model.
 
-## Phase 3 — Blocker Intelligence
+### Capability-based model routing
 
-Goal: make stops useful.
+Select or recommend models based on task requirements and available model
+capabilities rather than provider-specific name checks.
 
-- Detect when no ready tasks remain.
-- Trace blocking dependencies.
-- Distinguish technical blockers from human decisions and external dependencies.
-- Generate a proposed unblock plan.
-- Clearly report what user input is required.
-- Allow `/svibe:do` to resume cleanly after resolution.
+The routing system should degrade cleanly when a model or capability cannot be
+identified.
 
-### Exit Criteria
+## Future orchestration capabilities
 
-A blocked run explains both the problem and the recommended path forward.
+These are intentionally separate roadmap items rather than one broad "smart
+orchestration" feature.
 
----
+### Resumable epic execution
 
-## Phase 4 — Fresh Context / Agent Harness Support
+Allow an interrupted autonomous epic run to reconstruct its state and continue
+without replaying completed work.
 
-Goal: improve execution reliability and context management.
+### Task prioritization
 
-- Detect harness model-switching capabilities.
-- Support fresh context per task.
-- Rehydrate task context from durable epic state.
-- Support independent model/context for review.
-- Preserve execution state across agent/context boundaries.
-- Add capability-based model routing.
+Choose among multiple ready tasks using useful execution signals such as
+blocking depth, task risk, and context locality.
 
-### Exit Criteria
+### Failure and retry policy
 
-Execution no longer depends on preserving a single long-lived model context.
+Make retry behavior explicit and configurable, including when repeated failure
+should stop and request human judgment.
 
----
+### Parallel task execution
 
-## Phase 5 — Smarter Orchestration
+Execute independent child tasks concurrently where the host supports it and
+where doing so does not create unsafe repository or dependency interactions.
 
-Goal: improve efficiency after the basic runner is reliable.
+### Cost-aware model routing
 
-Potential work:
+Consider model cost alongside required capability when selecting among valid
+execution models.
 
-- task prioritization,
-- model selection by task,
-- limited parallel execution,
-- cost-aware routing,
-- failure/retry policies,
-- context locality optimization,
-- richer status reporting,
-- resumable interrupted runs.
+### Richer execution status
 
-Do not begin this phase until sequential execution is trustworthy.
+Provide clearer visibility into epic progress, active work, completed work,
+blocked work, verification state, and the reason for any stop.
 
----
+## Candidate integrations
 
-# Non-Goals
+### Additional host integrations
 
-Structured Vibe should not expand into general-purpose code review, PR automation, or QA workflow management unless those capabilities are directly required by the Structured Vibe planning/execution lifecycle.
+Expand beyond OpenCode where another host can support Structured Vibe's core
+workflow and capability model without compromising the local-first design.
 
-Broader code-review, PR, and QA automation should remain separate from Structured Vibe.
+Claude Code is an obvious candidate for evaluation.
 
-Structured Vibe should stay focused on:
+## Roadmap maintenance
 
-```text
-plan
-review
-execute
-verify
-complete
-```
+Roadmap entries describe **capabilities**, not implementation plans.
 
-with the minimum human intervention necessary to preserve judgment and safety.
+When work on an item begins:
 
----
+1. create a Beads epic for the capability,
+2. plan and review the epic using Structured Vibe,
+3. decompose it into executable child work,
+4. implement and verify it,
+5. assign the resulting work to a release when it is ready to ship.
 
-# Open Questions
-
-- Where should approved plan state live?
-- How much state belongs in Beads versus `.svibe/` artifacts?
-- Should `/svibe:do` require an explicitly approved/reviewed epic?
-- How should approval be represented durably?
-- Should verification findings create new child tasks or remain internal repair loops?
-- What retry threshold should escalate a failure to the human?
-- Can current agent harnesses switch models reliably from within a workflow?
-- Which harnesses support fresh-context subagents?
-- How should Structured Vibe detect model capabilities without maintaining a brittle static catalog?
-- Should task selection be strictly deterministic initially?
-- How should interrupted `/svibe:do` runs resume?
-- What constitutes enough epic-level verification to automatically close an epic?
-
----
-
-# North Star
-
-The intended experience is:
-
-```text
-/svibe:plan PM-12
-/svibe:review PM-12
-/svibe:plan PM-12
-/svibe:review PM-12
-
-# Human approves the plan
-
-/svibe:do PM-12
-```
-
-Then one of two outcomes:
-
-```text
-Epic PM-12 complete.
-All tasks executed and verified.
-Epic-level verification passed.
-```
-
-or:
-
-```text
-Execution stopped.
-The remaining work is blocked.
-
-Here is what is blocking it.
-Here is why.
-Here is the recommended unblock plan.
-Here is the decision/input needed from you.
-```
-
-The human should be making decisions, not advancing workflow state.
+A release may contain one roadmap capability, several, or only part of a larger
+capability if the shipped increment is independently useful.

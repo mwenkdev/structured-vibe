@@ -3,32 +3,28 @@
 A local-first methodology and toolchain for structuring AI-assisted software
 development.
 
-Structured Vibe spends human attention and model capability where they have
-the most leverage:
+Structured Vibe combines durable work definitions, reusable skills, model
+capability guidance, and independent verification so AI-assisted development
+can be deliberate without becoming ceremony-heavy.
+
+At a high level:
 
 - **Beads say what.** A bead is a coherent unit of work with acceptance
   criteria, constraints, and a specification reference.
 - **Skills say how.** A skill is reusable procedural knowledge that composes
   into execution.
-- **Finalization decides what is needed now.** Just before execution, a bead is
-  checked against current `HEAD`, required skills are derived, and a capability
-  floor is computed.
-- **Models do the work.** Work is routed to the lowest-cost model that meets
-  the required reliability threshold.
-- **Verification checks the work.** Non-trivial changes are independently
-  verified before a bead closes.
-- **Humans provide judgment** at the altitude where their attention has the
-  most leverage.
+- **Structured Vibe prepares and advises.** It resolves project state, derives
+  execution requirements, and provides the host with durable workflow
+  artifacts.
+- **The host executes.** The host loads skills, runs models, executes tools,
+  and owns session mechanics.
+- **Verification checks the result.** Non-trivial changes are independently
+  checked before work is considered complete.
 
-The goal is **not full autonomy**. Good developers ask questions, challenge
-assumptions, and escalate when implementation reality conflicts with the
-design. AI-assisted development should behave the same way.
+Structured Vibe is **not an agent harness**. It complements one.
 
-Structured Vibe is **not an agent harness**. It does not replace your host's
-model execution, tool execution, permissions, or session management.
-
-> Structured Vibe resolves, validates, materializes, and advises.
-> The host loads skills, runs models, and executes tools.
+See [Product Principles](docs/PRINCIPLES.md) for the durable design philosophy
+behind the workflow and [Roadmap](ROADMAP.md) for planned capabilities.
 
 ---
 
@@ -160,6 +156,10 @@ tier, and it also warns.
 
 ## Documentation
 
+- [`ROADMAP.md`](ROADMAP.md) — planned product capabilities; roadmap items are
+  candidates for Beads epics, not release commitments
+- [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) — durable product and workflow
+  principles
 - [`docs/specs/structured-vibe-spec.md`](docs/specs/structured-vibe-spec.md) —
   product and workflow intent
 - [`docs/specs/architecture.md`](docs/specs/architecture.md) — architectural
