@@ -13,6 +13,8 @@ belong in the corresponding Beads epic and its plan, not in this document.
 
 ### Autonomous epic execution
 
+<!-- bd: sv-bpq -->
+
 Add a host workflow such as `/svibe:do <epic>` that carries an approved epic
 forward until either:
 
@@ -25,6 +27,8 @@ each mechanical lifecycle step manually.
 
 ### Document-to-Beads decomposition
 
+<!-- bd: sv-33d -->
+
 Allow Structured Vibe to turn a roadmap, specification, design document, or
 similar artifact into a proposed Beads structure.
 
@@ -34,6 +38,8 @@ project-management system alongside Beads.
 
 ### Blocker diagnosis and unblock guidance
 
+<!-- bd: sv-gx4 -->
+
 When work cannot proceed, explain why rather than merely reporting that no task
 is ready.
 
@@ -42,6 +48,8 @@ technical blockers from external dependencies and human decisions, and suggest
 a concrete path to resume work.
 
 ### Command and identifier completion
+
+<!-- bd: sv-7sq -->
 
 Improve host-side completion where supported, including:
 
@@ -55,6 +63,8 @@ hard-coded examples.
 
 ### Deterministic next-step guidance
 
+<!-- bd: sv-vzf -->
+
 Workflow commands should report the recommended next action explicitly when a
 human action is required.
 
@@ -62,6 +72,8 @@ The workflow should not depend on an individual model remembering to suggest
 the correct next command.
 
 ### Model capability metadata
+
+<!-- bd: sv-m75 -->
 
 Refresh model capability and tier handling across supported providers and make
 it resilient to provider catalog changes.
@@ -77,6 +89,8 @@ Known needs include:
 
 ### Durable execution-ready epic state
 
+<!-- bd: sv-dwx -->
+
 Ensure an approved epic contains or references enough durable state to execute
 without depending on the planning conversation remaining in context.
 
@@ -87,6 +101,8 @@ replaced by a parallel Structured Vibe project-management layer.
 
 ### Fresh-context task execution
 
+<!-- bd: sv-ot3 -->
+
 Allow child tasks to execute in fresh contexts while reconstructing the
 necessary task context from durable project artifacts.
 
@@ -95,11 +111,15 @@ epics.
 
 ### Independent planning and review contexts
 
+<!-- bd: sv-w75 -->
+
 Where the host supports it, allow planning and review to use independent
 contexts and potentially different models so reviews evaluate the artifact
 rather than inherit the conversational momentum that produced it.
 
 ### Harness capability detection
+
+<!-- bd: sv-t9i -->
 
 Detect which orchestration capabilities the active host provides, such as:
 
@@ -114,6 +134,8 @@ harnesses expose the same execution model.
 
 ### Capability-based model routing
 
+<!-- bd: sv-w9t -->
+
 Select or recommend models based on task requirements and available model
 capabilities rather than provider-specific name checks.
 
@@ -127,30 +149,42 @@ orchestration" feature.
 
 ### Resumable epic execution
 
+<!-- bd: sv-jlw -->
+
 Allow an interrupted autonomous epic run to reconstruct its state and continue
 without replaying completed work.
 
 ### Task prioritization
+
+<!-- bd: sv-zas -->
 
 Choose among multiple ready tasks using useful execution signals such as
 blocking depth, task risk, and context locality.
 
 ### Failure and retry policy
 
+<!-- bd: sv-j13 -->
+
 Make retry behavior explicit and configurable, including when repeated failure
 should stop and request human judgment.
 
 ### Parallel task execution
+
+<!-- bd: sv-eym -->
 
 Execute independent child tasks concurrently where the host supports it and
 where doing so does not create unsafe repository or dependency interactions.
 
 ### Cost-aware model routing
 
+<!-- bd: sv-1i0 -->
+
 Consider model cost alongside required capability when selecting among valid
 execution models.
 
 ### Richer execution status
+
+<!-- bd: sv-08e -->
 
 Provide clearer visibility into epic progress, active work, completed work,
 blocked work, verification state, and the reason for any stop.
@@ -159,10 +193,65 @@ blocked work, verification state, and the reason for any stop.
 
 ### Additional host integrations
 
+<!-- bd: sv-sc7 -->
+
 Expand beyond OpenCode where another host can support Structured Vibe's core
 workflow and capability model without compromising the local-first design.
 
 Claude Code is an obvious candidate for evaluation.
+
+## Deferred
+
+These are speculative architecture extensions, recorded so the design intent is
+not lost. They are not scheduled work, and several are conditional on a problem
+that has not yet appeared.
+
+### svibe self-update
+
+<!-- bd: sv-j6i -->
+
+A future svibe self-update flow may consume the same release artifacts and
+checksums as the installer.
+
+### Pack install and update
+
+<!-- bd: sv-52h -->
+
+A future package or update mechanism may use the informational source metadata
+and SemVer to install and update skill packs.
+
+### Adapter-contributed model aliases
+
+<!-- bd: sv-7mk -->
+
+If maintaining every provider and host spelling in the central registry becomes
+painful, adapters may contribute exact external identifier mappings while the
+core registry continues to own canonical model identities and tiers.
+
+### Local daemon
+
+<!-- bd: sv-okt -->
+
+If repeated CLI subprocess calls become materially inefficient, a future local
+daemon may expose the same core logic through local IPC - one daemon per user or
+machine, multiple repo contexts, local-only by default.
+
+### Organization scope and enforcement
+
+<!-- bd: sv-8wq -->
+
+A future resolver may insert an organization scope into the ordered scopes, for
+example core < org < user < project, with a policy mechanism allowing
+organization-level enforcement that cannot be replaced by ordinary user or
+project precedence.
+
+### Abstract capability matching
+
+<!-- bd: sv-r8e -->
+
+A future capability system may allow a skill to request a capability such as
+documentation or security-review and resolve one of several providers, rather
+than referencing exact skill IDs.
 
 ## Roadmap maintenance
 
