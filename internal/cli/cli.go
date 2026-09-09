@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/mwenkdev/structured-vibe/internal/bd"
 	"github.com/mwenkdev/structured-vibe/internal/diag"
 	"github.com/mwenkdev/structured-vibe/internal/managed"
 	"github.com/mwenkdev/structured-vibe/internal/paths"
@@ -31,6 +32,10 @@ type Env struct {
 	// VerifyIntegration overrides the host-integration precondition. Tests
 	// set this to describe an installed host; production leaves it nil.
 	VerifyIntegration func() diag.Diagnostics
+
+	// BDRunner overrides bd process execution. Tests set this to describe a
+	// fake work graph; production leaves it nil and the real bd binary runs.
+	BDRunner bd.Runner
 
 	// pre holds diagnostics produced before dispatch, such as managed-file
 	// modification warnings, so commands can surface them in their envelope.
@@ -66,6 +71,7 @@ var commands = []Command{
 	{Name: "advise", Summary: "compare a skill's capability recommendation to a model", Run: runAdvise},
 	{Name: "sync", Summary: "publish the resolved skill snapshot for the host", Run: runSync},
 	{Name: "status", Summary: "report whether generated output is current", Run: runStatus},
+	{Name: "progress", Summary: "report subtree progress for a bead", Run: runProgress},
 	{Name: "admin", Summary: "install or update host integrations (setup, update)", Run: runAdmin},
 	{Name: "version", Summary: "print the svibe version", Run: runVersion},
 }
