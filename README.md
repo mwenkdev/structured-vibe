@@ -65,7 +65,7 @@ svibe sync                   # publish the resolved skills to the host
 Then restart OpenCode. It reads skills once at startup and does not reload
 them.
 
-The six core workflow skills become available to your agent:
+The seven core workflow skills become available to your agent:
 
 | Skill | Purpose |
 | --- | --- |
@@ -75,6 +75,7 @@ The six core workflow skills become available to your agent:
 | `sv-finalize` | Prepare one ready bead against current `HEAD` and compute its capability floor |
 | `sv-execute` | Implement a finalized bead using the selected skills |
 | `sv-verify` | Independently check that the implementation satisfies the bead |
+| `sv-progress` | Report deterministic execution progress for a bead subtree |
 
 ---
 
@@ -89,9 +90,11 @@ svibe validate [<pack-path>]   validate the active environment, or one pack
 svibe resolve                  show the resolved skill set and its provenance
 svibe sync                     publish the resolved snapshot for the host
 svibe status                   report whether generated output is current
+svibe progress <bead-id>       report execution progress for a bead subtree
 svibe advise --skill --model   compare a skill's capability recommendation to a model
 svibe admin setup opencode     install the host integration
 svibe admin update             update installed host integrations
+svibe version                  print the svibe version
 ```
 
 Every command accepts `--json`, which emits a stable envelope on stdout:

@@ -10,6 +10,7 @@ var expected = map[string]string{
 	"core/skills/sv-execute/SKILL.md":  "f5d24acc9b6989af1d4cf733bc94f8d4ba93ccef8b567940bdeac7c7bb758a7e",
 	"core/skills/sv-finalize/SKILL.md": "ded2787220cb85a35b08facc14276df3c4090e0d14e5a685620206c474039398",
 	"core/skills/sv-plan/SKILL.md":     "8850cdc24eef5c01d780553f35a8aeb9ce0713341d5d23f61c22373f742ae1b3",
+	"core/skills/sv-progress/SKILL.md": "054918c8b366a7d32b4519d615b43c4c560916d2b74438950ef39305a78074c1",
 	"core/skills/sv-review/SKILL.md":   "60d017da386012b8e7422e99fb3b09c18e6ccba1ad6f2af82ae8c5ed865fadea",
 	"core/skills/sv-verify/SKILL.md":   "6bf147957bc90d6c266a5b08b835c559838117879ec4293dd4d1d2357491406d",
 	"core/structured-vibe.yaml":        "4711fa90d1bbde55d198217c0e2a7a30a6f594a379dd5cf1ca7814a64fa64470",

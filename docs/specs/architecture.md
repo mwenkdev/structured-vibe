@@ -138,13 +138,16 @@ svibe init
 svibe validate
 svibe validate <pack-path>
 svibe resolve
+svibe advise
 svibe sync
 svibe status
+svibe progress <bead-id>
 
 svibe admin setup
 svibe admin setup opencode
 svibe admin update
 svibe admin update opencode
+svibe version
 ```
 
 ### 4.1 Infrastructure, not workflow execution
@@ -157,6 +160,7 @@ The CLI provides infrastructure:
 - materialization;
 - integrity checks;
 - status;
+- read-only execution-progress projection;
 - installation/administrative integration work.
 
 The CLI does **not** expose commands such as `svibe plan`, `svibe review`, or `svibe execute`.
@@ -168,7 +172,8 @@ The development workflow runs in the host through skills such as:
 - `sv-beads`;
 - `sv-finalize`;
 - `sv-execute`;
-- `sv-verify`.
+- `sv-verify`;
+- `sv-progress`.
 
 ### 4.2 Go implementation boundary
 
@@ -757,6 +762,10 @@ Requirements:
 ## 14. Sync Freshness and Status
 
 `svibe status` reports whether generated output is current.
+
+This is snapshot freshness, not workflow execution progress. `svibe progress
+<bead-id>` reports the current execution state of one Beads subtree; the two
+concerns remain separate. See [Richer execution status](richer-execution-status.md).
 
 V1 uses content hashing, not filesystem timestamps.
 
