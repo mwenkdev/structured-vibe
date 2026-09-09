@@ -994,6 +994,420 @@ func TestProgressStopHumanOutput(t *testing.T) {
 	}
 }
 
+// --- verification (D5, D10) -----------------------------------------------
+
+// recorded stamps a bead with the two writes of the D5 convention, as bd
+// materialises them: the outcome as a label, the commit as metadata. An empty
+// commit reproduces the interrupted case, where only the outcome exists.
+func recorded(is fixtureIssue, value, commit string) fixtureIssue {
+	is.Labels = []string{verificationLabelPrefix + value}
+	if commit != "" {
+		is.Metadata = map[string]any{verificationCommitKey: commit}
+	}
+	return is
+}
+
+func memberByID(t *testing.T, res map[string]any, id string) map[string]any {
+	t.Helper()
+	for _, raw := range res["members"].([]any) {
+		if m := raw.(map[string]any); m["id"] == id {
+			return m
+		}
+	}
+	t.Fatalf("member %s is absent from %v", id, memberIDs(t, res))
+	return nil
+}
+
+// anomalyPairs flattens anomalies into "member/code" strings in emitted order.
+func anomalyPairs(t *testing.T, res map[string]any) []string {
+	t.Helper()
+	out := []string{}
+	for _, raw := range res["anomalies"].([]any) {
+		a := raw.(map[string]any)
+		if a["message"] == "" || a["message"] == nil {
+			t.Errorf("anomaly %v carries no message", a)
+		}
+		out = append(out, a["member"].(string)+"/"+a["code"].(string))
+	}
+	return out
+}
+
+func verificationCountsOf(t *testing.T, res map[string]any) map[string]int {
+	t.Helper()
+	out := map[string]int{}
+	for k, v := range res["verification_counts"].(map[string]any) {
+		out[k] = int(v.(float64))
+	}
+	return out
+}
+
+// TestProgressMemberVerificationEveryBucket pins D10's "every work member
+// regardless of bucket": verification is member state, not a property of
+// completed work, so an open member carries it too.
+func TestProgressMemberVerificationEveryBucket(t *testing.T) {
+	cases := []struct {
+		name   string
+		issue  fixtureIssue
+		want   string
+		commit any
+	}{
+		{
+			name:   "closed with a recorded pass",
+			issue:  recorded(task("m", "sv-1", "closed"), "pass", "a1b2c3"),
+			want:   verificationPass,
+			commit: "a1b2c3",
+		},
+		{
+			name:   "closed with a recorded fail",
+			issue:  recorded(task("m", "sv-1", "closed"), "fail", "a1b2c3"),
+			want:   verificationFail,
+			commit: "a1b2c3",
+		},
+		{
+			name:   "non-closed with a recorded pass is stale",
+			issue:  recorded(task("m", "sv-1", "open"), "pass", "a1b2c3"),
+			want:   verificationStalePass,
+			commit: "a1b2c3",
+		},
+		{
+			// Ordinary in-flight state after a REJECT: reported, not faulted.
+			name:   "non-closed with a recorded fail",
+			issue:  recorded(task("m", "sv-1", "open"), "fail", "a1b2c3"),
+			want:   verificationFail,
+			commit: "a1b2c3",
+		},
+		{
+			name:   "nothing recorded",
+			issue:  task("m", "sv-1", "closed"),
+			want:   verificationUnverified,
+			commit: nil,
+		},
+		{
+			// The interruption the commit-first order is designed to survive.
+			name:   "commit metadata with no outcome reads as unverified",
+			issue:  fixtureIssue{ID: "m", Status: "closed", IssueType: "task", Parent: "sv-1", Metadata: map[string]any{verificationCommitKey: "a1b2c3"}},
+			want:   verificationUnverified,
+			commit: "a1b2c3",
+		},
+		{
+			name:   "an in-flight member carries verification too",
+			issue:  recorded(task("m", "sv-1", "in_progress"), "fail", "a1b2c3"),
+			want:   verificationFail,
+			commit: "a1b2c3",
+		},
+		{
+			name:   "a container carries verification too",
+			issue:  recorded(fixtureIssue{ID: "m", Status: "closed", IssueType: "epic", Parent: "sv-1"}, "pass", "a1b2c3"),
+			want:   verificationPass,
+			commit: "a1b2c3",
+		},
+		{
+			name:   "a pinned member carries verification too",
+			issue:  recorded(task("m", "sv-1", "pinned"), "pass", "a1b2c3"),
+			want:   verificationStalePass,
+			commit: "a1b2c3",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := fixture{issues: []fixtureIssue{
+				{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+				tc.issue,
+			}}
+
+			m := memberByID(t, decodeResult(t, mustRun(t, fx, "sv-1")), "m")
+			if m["verification"] != tc.want {
+				t.Errorf("verification = %v, want %q", m["verification"], tc.want)
+			}
+			if m["verification_commit"] != tc.commit {
+				t.Errorf("verification_commit = %v, want %v (emitted verbatim)",
+					m["verification_commit"], tc.commit)
+			}
+			if m["verification_raw"] != nil {
+				t.Errorf("verification_raw = %v, want null for a recognised value", m["verification_raw"])
+			}
+		})
+	}
+}
+
+// TestProgressVerificationCountsCoverCompletedOnly pins the denominator: an
+// open member is not expected to be verified, so counting it as missing
+// coverage would manufacture a fault out of ordinary in-flight state.
+func TestProgressVerificationCountsCoverCompletedOnly(t *testing.T) {
+	fx := fixture{issues: []fixtureIssue{
+		{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+		recorded(task("sv-1.1", "sv-1", "closed"), "pass", "c1"),
+		recorded(task("sv-1.2", "sv-1", "closed"), "pass", "c2"),
+		recorded(task("sv-1.3", "sv-1", "closed"), "fail", "c3"),
+		task("sv-1.4", "sv-1", "closed"),
+		// Non-closed members are in no coverage key, whatever they recorded.
+		recorded(task("sv-1.5", "sv-1", "open"), "pass", "c5"),
+		recorded(task("sv-1.6", "sv-1", "open"), "fail", "c6"),
+		task("sv-1.7", "sv-1", "open"),
+		// Container and pinned members are not completed members either.
+		recorded(fixtureIssue{ID: "sv-1.c", Status: "closed", IssueType: "epic", Parent: "sv-1"}, "pass", "c8"),
+		recorded(task("sv-1.p", "sv-1", "pinned"), "pass", "c9"),
+	}}
+
+	res := decodeResult(t, mustRun(t, fx, "sv-1"))
+	got := verificationCountsOf(t, res)
+	want := map[string]int{"completed_total": 4, "pass": 2, "fail": 1, "unverified": 1}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("verification_counts = %v, want %v", got, want)
+	}
+	if got["pass"]+got["fail"]+got["unverified"] != got["completed_total"] {
+		t.Errorf("coverage keys do not sum to completed_total: %v", got)
+	}
+
+	// stale-pass is member state and an anomaly, never a coverage key.
+	if memberByID(t, res, "sv-1.5")["verification"] != verificationStalePass {
+		t.Error("a non-closed recorded pass was not reported as stale-pass")
+	}
+}
+
+// TestProgressAnomaliesFireOnTheirOwnFixtureAndNowhereElse is the whole
+// anomaly contract in one table: each fixture yields exactly the anomalies
+// listed and no others.
+func TestProgressAnomaliesFireOnTheirOwnFixtureAndNowhereElse(t *testing.T) {
+	cases := []struct {
+		name  string
+		issue fixtureIssue
+		want  []string
+	}{
+		{
+			name:  "closed with a recorded fail",
+			issue: recorded(task("m", "sv-1", "closed"), "fail", "a1b2c3"),
+			want:  []string{"m/" + anomalyClosedFailed},
+		},
+		{
+			name:  "recorded pass on a non-closed bead",
+			issue: recorded(task("m", "sv-1", "open"), "pass", "a1b2c3"),
+			want:  []string{"m/" + anomalyStalePass},
+		},
+		{
+			name:  "outcome recorded with no commit",
+			issue: recorded(task("m", "sv-1", "closed"), "pass", ""),
+			want:  []string{"m/" + anomalyNoCommit},
+		},
+		{
+			name:  "a clean verified closure is not an anomaly",
+			issue: recorded(task("m", "sv-1", "closed"), "pass", "a1b2c3"),
+			want:  []string{},
+		},
+		{
+			name:  "a recorded fail on an open bead is in-flight state, not an anomaly",
+			issue: recorded(task("m", "sv-1", "open"), "fail", "a1b2c3"),
+			want:  []string{},
+		},
+		{
+			name:  "an unverified bead is not an anomaly",
+			issue: task("m", "sv-1", "closed"),
+			want:  []string{},
+		},
+		{
+			name:  "an unrecognised value is not an outcome missing a commit",
+			issue: recorded(task("m", "sv-1", "closed"), "wibble", ""),
+			want:  []string{},
+		},
+		{
+			// Two findings on one member, sorted by code.
+			name:  "a stale pass with no commit fires both",
+			issue: recorded(task("m", "sv-1", "open"), "pass", ""),
+			want:  []string{"m/" + anomalyStalePass, "m/" + anomalyNoCommit},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := fixture{issues: []fixtureIssue{
+				{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+				tc.issue,
+			}}
+
+			got := anomalyPairs(t, decodeResult(t, mustRun(t, fx, "sv-1")))
+			if !equalStrings(got, tc.want) {
+				t.Errorf("anomalies = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestProgressClosedFailIsAnomalyNeverBlocker resolves review finding R-02: a
+// closed dependency is a satisfied dependency however it was verified, and
+// readiness is Beads' judgment alone.
+func TestProgressClosedFailIsAnomalyNeverBlocker(t *testing.T) {
+	fx := fixture{
+		issues: []fixtureIssue{
+			{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+			recorded(task("sv-1.1", "sv-1", "closed"), "fail", "a1b2c3"),
+			task("sv-1.2", "sv-1", "open"),
+		},
+		ready: []string{"sv-1.2"},
+	}
+
+	res := decodeResult(t, mustRun(t, fx, "sv-1"))
+	if got := anomalyPairs(t, res); !equalStrings(got, []string{"sv-1.1/" + anomalyClosedFailed}) {
+		t.Errorf("anomalies = %v, want the closed failure reported", got)
+	}
+
+	for _, raw := range res["members"].([]any) {
+		m := raw.(map[string]any)
+		for _, b := range m["blocked_by"].([]any) {
+			if b.(map[string]any)["id"] == "sv-1.1" {
+				t.Errorf("%v is blocked by a closed member because its verification failed", m["id"])
+			}
+		}
+	}
+	if got := memberBuckets(t, res)["sv-1.2"]; got != bucketAvailable {
+		t.Errorf("sv-1.2 bucket = %q, want available: a failed verification must not withdraw readiness", got)
+	}
+	if stop := decodeStop(t, res); stop["stopped"] != false {
+		t.Errorf("stopped = %v, want false: verification never affects the stop summary", stop["stopped"])
+	}
+}
+
+// TestProgressUnrecognisedVerificationValue covers the escape hatch: an
+// unknown recorded value is neither trusted nor silently dropped.
+func TestProgressUnrecognisedVerificationValue(t *testing.T) {
+	fx := fixture{issues: []fixtureIssue{
+		{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+		// "blocked" is specifically not a verification value: ESCALATE is
+		// lifecycle state, not a verification result.
+		recorded(task("sv-1.1", "sv-1", "closed"), "blocked", "a1b2c3"),
+	}}
+
+	got := runProgressFixture(t, fx, "progress", "sv-1", "--json")
+	if got.err != nil {
+		t.Fatalf("an unrecognised value must not fail the command: %v\n%s", got.err, got.stderr)
+	}
+
+	res := decodeResult(t, got.stdout)
+	m := memberByID(t, res, "sv-1.1")
+	if m["verification"] != verificationUnverified {
+		t.Errorf("verification = %v, want unverified", m["verification"])
+	}
+	if m["verification_raw"] != "blocked" {
+		t.Errorf("verification_raw = %v, want the raw string preserved", m["verification_raw"])
+	}
+	if c := verificationCountsOf(t, res); c["unverified"] != 1 {
+		t.Errorf("verification_counts = %v, want the member counted unverified", c)
+	}
+
+	var env struct {
+		Warnings []struct{ Code, Message string } `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(got.stdout), &env); err != nil {
+		t.Fatal(err)
+	}
+	if len(env.Warnings) != 1 || env.Warnings[0].Code != codeUnknownVerification {
+		t.Fatalf("warnings = %+v, want one %s", env.Warnings, codeUnknownVerification)
+	}
+	for _, want := range []string{"sv-1.1", "blocked"} {
+		if !strings.Contains(env.Warnings[0].Message, want) {
+			t.Errorf("warning %q does not name %q", env.Warnings[0].Message, want)
+		}
+	}
+}
+
+// TestProgressCompleteSubtreeCanBeUnverified is the point of D10: structural
+// progress makes no verification claim, so both facts must be visible at once
+// and in both output forms.
+func TestProgressCompleteSubtreeCanBeUnverified(t *testing.T) {
+	fx := fixture{issues: []fixtureIssue{
+		{ID: "sv-1", Title: "root epic", Status: "open", IssueType: "epic"},
+		recorded(task("sv-1.1", "sv-1", "closed"), "pass", "a1b2c3"),
+		task("sv-1.2", "sv-1", "closed"),
+	}}
+
+	res := decodeResult(t, mustRun(t, fx, "sv-1"))
+	if res["completion_ratio"] != 1.0 {
+		t.Errorf("completion_ratio = %v, want 1.0: every countable member is closed", res["completion_ratio"])
+	}
+	if stop := decodeStop(t, res); stop["complete"] != true {
+		t.Errorf("complete = %v, want true", stop["complete"])
+	}
+	want := map[string]int{"completed_total": 2, "pass": 1, "fail": 0, "unverified": 1}
+	if got := verificationCountsOf(t, res); !reflect.DeepEqual(got, want) {
+		t.Errorf("verification_counts = %v, want %v: coverage is incomplete", got, want)
+	}
+
+	human := runProgressFixture(t, fx, "progress", "sv-1")
+	if human.err != nil {
+		t.Fatalf("progress failed: %v\n%s", human.err, human.stderr)
+	}
+	for _, w := range []string{"100.0%", "verification", verificationUnverified, "incomplete"} {
+		if !strings.Contains(human.stdout, w) {
+			t.Errorf("human output omits %q, so complete-but-unverified is not visible:\n%s",
+				w, human.stdout)
+		}
+	}
+}
+
+func TestProgressVerificationHumanOutput(t *testing.T) {
+	fx := fixture{issues: []fixtureIssue{
+		{ID: "sv-1", Title: "root epic", Status: "open", IssueType: "epic"},
+		recorded(task("sv-1.1", "sv-1", "closed"), "pass", "a1b2c3"),
+		recorded(task("sv-1.2", "sv-1", "open"), "pass", "d4e5f6"),
+	}}
+
+	got := runProgressFixture(t, fx, "progress", "sv-1")
+	if got.err != nil {
+		t.Fatalf("progress failed: %v\n%s", got.err, got.stderr)
+	}
+	for _, want := range []string{
+		verificationPass, verificationStalePass, anomalyStalePass, "a1b2c3", "d4e5f6",
+	} {
+		if !strings.Contains(got.stdout, want) {
+			t.Errorf("human output omits %q:\n%s", want, got.stdout)
+		}
+	}
+}
+
+// TestProgressVerificationReadsNoEventBead is the guard: verification state
+// comes from labels[] and metadata only. bd set-state creates an event bead
+// as a parent-child CHILD of the work bead, and its own labels must be
+// invisible here.
+func TestProgressVerificationReadsNoEventBead(t *testing.T) {
+	plain := fixture{issues: []fixtureIssue{
+		{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+		recorded(task("sv-1.1", "sv-1", "closed"), "pass", "a1b2c3"),
+	}}
+
+	// The same graph after a set-state call: an event bead carrying a
+	// contradictory outcome hangs beneath the verified member.
+	withEvent := fixture{issues: append([]fixtureIssue{}, plain.issues...)}
+	withEvent.issues = append(withEvent.issues, recorded(fixtureIssue{
+		ID: "sv-ev", Title: "state change", Status: "closed",
+		IssueType: "event", Parent: "sv-1.1",
+	}, "fail", ""))
+
+	var argv [][]string
+	got := runProgressRecording(t, withEvent, &argv, "progress", "sv-1", "--json")
+	if got.err != nil {
+		t.Fatalf("progress failed: %v\n%s", got.err, got.stderr)
+	}
+	if len(argv) != 4 {
+		t.Errorf("bd invocations = %d, want exactly 4: verification introduces no new call", len(argv))
+	}
+
+	res := decodeResult(t, got.stdout)
+	if ids := memberIDs(t, res); !equalStrings(ids, []string{"sv-1.1"}) {
+		t.Fatalf("members = %v, want only sv-1.1: the event bead is not a member", ids)
+	}
+	if m := memberByID(t, res, "sv-1.1"); m["verification"] != verificationPass {
+		t.Errorf("verification = %v, want pass from the member's own label", m["verification"])
+	}
+	if a := anomalyPairs(t, res); len(a) != 0 {
+		t.Errorf("anomalies = %v, want none: the event bead's own state was read", a)
+	}
+
+	// The projection is byte-identical with and without the event bead.
+	if before, after := mustRun(t, plain, "sv-1"), got.stdout; before != after {
+		t.Errorf("the set-state event bead changed the projection:\n%s\n---\n%s", before, after)
+	}
+}
+
 // --- output schema --------------------------------------------------------
 
 func TestProgressSchemaKeysAlwaysPresent(t *testing.T) {
@@ -1013,9 +1427,20 @@ func TestProgressSchemaKeysAlwaysPresent(t *testing.T) {
 		}
 	}
 
-	// Reserved until M2.
-	if res["verification_counts"] != nil {
-		t.Errorf("verification_counts = %v, want null in M2", res["verification_counts"])
+	// Populated from M2 on, and a non-null object in every successful result
+	// for the same reason stop is: a consumer never distinguishes "no
+	// coverage" from "coverage not computed".
+	vc, ok := res["verification_counts"].(map[string]any)
+	if !ok {
+		t.Fatalf("verification_counts = %v, want a non-null object", res["verification_counts"])
+	}
+	for _, k := range []string{"completed_total", "pass", "fail", "unverified"} {
+		if _, present := vc[k]; !present {
+			t.Errorf("verification_counts key %q is absent", k)
+		}
+	}
+	if _, present := vc["stale-pass"]; present {
+		t.Error("verification_counts carries a stale-pass key; it cannot occur over completed members")
 	}
 
 	// stop is populated from M3 on and is a non-null object in every
@@ -1043,9 +1468,14 @@ func TestProgressSchemaKeysAlwaysPresent(t *testing.T) {
 			t.Errorf("member key %q is absent", k)
 		}
 	}
-	for _, k := range []string{"verification", "verification_raw", "verification_commit"} {
+	// A member with nothing recorded reports the closed value unverified,
+	// with the two nullable fields null.
+	if m["verification"] != verificationUnverified {
+		t.Errorf("verification = %v, want %q", m["verification"], verificationUnverified)
+	}
+	for _, k := range []string{"verification_raw", "verification_commit"} {
 		if m[k] != nil {
-			t.Errorf("member %s = %v, want null in M1", k, m[k])
+			t.Errorf("member %s = %v, want null when nothing is recorded", k, m[k])
 		}
 	}
 	if b, ok := m["blocked_by"].([]any); !ok || len(b) != 0 {

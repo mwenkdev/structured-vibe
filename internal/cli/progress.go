@@ -21,6 +21,9 @@ const (
 	codeUnknownRoot = "progress.unknown-root"
 	// codeUnclassified reports a member no bucket rule could claim.
 	codeUnclassified = "progress.unclassified"
+	// codeUnknownVerification reports a recorded verification value outside
+	// the closed vocabulary.
+	codeUnknownVerification = "progress.unknown-verification"
 )
 
 // Buckets of the D9 taxonomy. Every listed member carries exactly one.
@@ -43,6 +46,37 @@ const (
 	statusInProgress = "in_progress"
 	statusHooked     = "hooked"
 	statusBlocked    = "blocked"
+)
+
+// Verification values reported at member level (D10). The closed vocabulary:
+// anything else recorded is reported as unverified with the raw string kept.
+const (
+	verificationPass       = "pass"
+	verificationFail       = "fail"
+	verificationStalePass  = "stale-pass"
+	verificationUnverified = "unverified"
+)
+
+// The read-back channel of the D5 convention.
+//
+// bd set-state materialises the outcome as this label and --set-metadata
+// materialises the commit under this key. Both arrive in bulk on the existing
+// member-list call, so verification is read from labels and metadata only and
+// never from event beads.
+const (
+	verificationLabelPrefix = "verification:"
+	verificationCommitKey   = "verification_commit"
+)
+
+// Anomaly codes: the closed vocabulary of lifecycle-integrity findings (D10).
+//
+// Declared in ascending string order, which is also the order they are
+// appended per member, so anomalies come out sorted by member id then code
+// without a second sort.
+const (
+	anomalyClosedFailed = "closed-with-failed-verification"
+	anomalyStalePass    = "stale-pass"
+	anomalyNoCommit     = "verification-without-commit"
 )
 
 // infrastructureTypes are operational bead types excluded from the projection
@@ -85,10 +119,35 @@ type progressResult struct {
 
 	Members []member `json:"members"`
 
-	// VerificationCounts, Anomalies are reserved for M2. Stop is populated in M3.
-	VerificationCounts any         `json:"verification_counts"`
-	Anomalies          []any       `json:"anomalies"`
-	Stop               *stopResult `json:"stop"`
+	VerificationCounts verificationCounts `json:"verification_counts"`
+	Anomalies          []anomaly          `json:"anomalies"`
+	Stop               *stopResult        `json:"stop"`
+}
+
+// verificationCounts is coverage over completed members only (D10).
+//
+// It reports coverage and computes no compliance judgment: no durable marker
+// distinguishes "verification required but missing" from "trivial, so
+// self-verification was legitimate", so the human judges sufficiency.
+//
+// stale-pass is deliberately not a key. It requires a non-closed member by
+// definition and therefore cannot occur in a completed-only census.
+type verificationCounts struct {
+	CompletedTotal int `json:"completed_total"`
+	Pass           int `json:"pass"`
+	Fail           int `json:"fail"`
+	Unverified     int `json:"unverified"`
+}
+
+// anomaly is one lifecycle-integrity finding against a named member.
+//
+// An anomaly is an observation, never a blocker: readiness and blockage are
+// Beads' judgment, and a closed bead is a satisfied dependency however it was
+// verified.
+type anomaly struct {
+	Member  string `json:"member"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 // rootRef identifies the subtree root, which is never its own member.
@@ -126,8 +185,11 @@ type member struct {
 	Parent    string `json:"parent"`
 	Bucket    string `json:"bucket"`
 
-	// Verification fields are reserved for M2 and are null here.
-	Verification       *string `json:"verification"`
+	// Verification is the latest recorded state, carried by every member
+	// regardless of bucket, and is one of the four closed values. Raw holds
+	// the recorded string only when it was unrecognised; Commit is emitted
+	// verbatim so a consumer can compare it against HEAD itself.
+	Verification       string  `json:"verification"`
 	VerificationRaw    *string `json:"verification_raw"`
 	VerificationCommit *string `json:"verification_commit"`
 
@@ -235,12 +297,50 @@ func (r *progressResult) PrintHuman(w io.Writer) {
 		fmt.Fprintf(w, "  %-14s %d\n", row.name, row.n)
 	}
 
+	// A separate section on purpose (D10). Structural progress makes no
+	// verification claim, so a subtree can read 100% complete here and still
+	// show missing coverage immediately below it.
+	vc := r.VerificationCounts
+	fmt.Fprintf(w, "\nverification (%d completed members):\n", vc.CompletedTotal)
+	if vc.CompletedTotal == 0 {
+		fmt.Fprintln(w, "  (no completed members to verify)")
+	} else {
+		for _, row := range []struct {
+			name string
+			n    int
+		}{
+			{verificationPass, vc.Pass},
+			{verificationFail, vc.Fail},
+			{verificationUnverified, vc.Unverified},
+		} {
+			fmt.Fprintf(w, "  %-14s %d\n", row.name, row.n)
+		}
+		if vc.Unverified > 0 {
+			fmt.Fprintf(w, "  coverage       incomplete (%d of %d completed members verified)\n",
+				vc.Pass+vc.Fail, vc.CompletedTotal)
+		}
+	}
+
+	fmt.Fprintf(w, "\nanomalies (%d):\n", len(r.Anomalies))
+	if len(r.Anomalies) == 0 {
+		fmt.Fprintln(w, "  (none)")
+	}
+	for _, a := range r.Anomalies {
+		fmt.Fprintf(w, "  %-24s %-32s %s\n", a.Member, a.Code, a.Message)
+	}
+
 	fmt.Fprintf(w, "\nmembers (%d):\n", len(r.Members))
 	if len(r.Members) == 0 {
 		fmt.Fprintln(w, "  (none)")
 	}
 	for _, m := range r.Members {
-		fmt.Fprintf(w, "  %-14s %-24s %s\n", m.Bucket, m.ID, m.Title)
+		fmt.Fprintf(w, "  %-14s %-11s %-24s %s\n", m.Bucket, m.Verification, m.ID, m.Title)
+		if m.VerificationCommit != nil {
+			fmt.Fprintf(w, "      verified at %s\n", *m.VerificationCommit)
+		}
+		if m.VerificationRaw != nil {
+			fmt.Fprintf(w, "      recorded value %q is not a known outcome\n", *m.VerificationRaw)
+		}
 		for _, b := range m.BlockedBy {
 			scope := "outside subtree"
 			if b.InSubtree {
@@ -323,7 +423,7 @@ func project(snap *bd.Snapshot, root bd.Issue) (*progressResult, diag.Diagnostic
 		},
 		BDVersion: snap.Version,
 		Members:   []member{},
-		Anomalies: []any{},
+		Anomalies: []anomaly{},
 	}
 
 	for _, id := range ids {
@@ -335,6 +435,13 @@ func project(snap *bd.Snapshot, root bd.Issue) (*progressResult, diag.Diagnostic
 					"something this projection does not", is.ID, is.Status)
 		}
 
+		verification, raw := deriveVerification(is)
+		if raw != nil {
+			d.Warnf(codeUnknownVerification, "",
+				"bead %s recorded verification %q, which is not a known outcome; "+
+					"reporting it as unverified", is.ID, *raw)
+		}
+
 		res.Members = append(res.Members, member{
 			ID:        is.ID,
 			Title:     is.Title,
@@ -343,6 +450,11 @@ func project(snap *bd.Snapshot, root bd.Issue) (*progressResult, diag.Diagnostic
 			Priority:  is.Priority,
 			Parent:    is.Parent,
 			Bucket:    bucket,
+
+			Verification:       verification,
+			VerificationRaw:    raw,
+			VerificationCommit: verificationCommitOf(is),
+
 			BlockedBy: blockersOf(snap, is.ID, inSubtree),
 		})
 		res.Counts.add(bucket)
@@ -355,8 +467,135 @@ func project(snap *bd.Snapshot, root bd.Issue) (*progressResult, diag.Diagnostic
 	res.Counts.TotalCountable = res.Counts.countable()
 	res.CompletionRatio = ratio(res.Counts.Completed, res.Counts.TotalCountable)
 
+	// Both read the already-sorted member list, so neither needs a sort of
+	// its own and neither can reorder output.
+	res.VerificationCounts = coverage(res.Members)
+	res.Anomalies = anomaliesOf(res.Members)
+
 	res.Stop = computeStop(res)
 	return res, d
+}
+
+// deriveVerification maps one bead's recorded state to its reported value
+// (D5, D10).
+//
+// It reads labels[] and metadata only. Verification history lives in bd event
+// beads, which this projection never reads: the latest recorded state is
+// exactly what the label carries.
+//
+// The second result is non-nil only for an unrecognised recorded value, which
+// is reported as unverified with the raw string preserved rather than trusted
+// or dropped.
+func deriveVerification(is bd.Issue) (string, *string) {
+	recorded, ok := recordedVerification(is)
+	if !ok {
+		// Includes the interrupted case: commit metadata written with no
+		// outcome yet. That reads as unverified, which is the safe and
+		// truthful failure the commit-first write order buys.
+		return verificationUnverified, nil
+	}
+
+	switch recorded {
+	case verificationPass:
+		if is.Status == statusClosed {
+			return verificationPass, nil
+		}
+		// The reopen case: a pass describing an implementation the bead has
+		// since moved past.
+		return verificationStalePass, nil
+	case verificationFail:
+		// Reported for closed and non-closed members alike. On a non-closed
+		// member this is ordinary in-flight state after a REJECT, not a fault.
+		return verificationFail, nil
+	}
+	return verificationUnverified, &recorded
+}
+
+// recordedVerification returns the outcome bd set-state materialised as a
+// label. A hand-applied literal label is indistinguishable from a set-state
+// record and is treated identically: an accepted cost of using the
+// Beads-native mechanism rather than inventing a private one.
+func recordedVerification(is bd.Issue) (string, bool) {
+	for _, label := range is.Labels {
+		if value, found := strings.CutPrefix(label, verificationLabelPrefix); found {
+			return value, true
+		}
+	}
+	return "", false
+}
+
+// verificationCommitOf returns the recorded commit verbatim, or nil.
+func verificationCommitOf(is bd.Issue) *string {
+	commit, ok := is.MetadataString(verificationCommitKey)
+	if !ok || commit == "" {
+		return nil
+	}
+	return &commit
+}
+
+// coverage counts verification over completed members only (D10).
+//
+// Deliberately not over every member: an open bead is not expected to be
+// verified, so counting it as missing coverage would manufacture a fault out
+// of ordinary in-flight state.
+func coverage(members []member) verificationCounts {
+	var c verificationCounts
+	for _, m := range members {
+		if m.Bucket != bucketCompleted {
+			continue
+		}
+		c.CompletedTotal++
+		switch m.Verification {
+		case verificationPass:
+			c.Pass++
+		case verificationFail:
+			c.Fail++
+		default:
+			// unverified. stale-pass cannot reach here: it requires a
+			// non-closed member and this bucket is closed by definition.
+			c.Unverified++
+		}
+	}
+	return c
+}
+
+// anomaliesOf collects lifecycle-integrity findings (D10).
+//
+// Members arrive sorted by id and the three codes are appended in ascending
+// code order, so the result is sorted by member then code by construction.
+//
+// These are observations. None of them makes a member a blocker of anything:
+// a closed bead is a satisfied dependency, and Beads owns that judgment.
+func anomaliesOf(members []member) []anomaly {
+	out := []anomaly{}
+	for _, m := range members {
+		if m.Verification == verificationFail && m.Status == statusClosed {
+			out = append(out, anomaly{m.ID, anomalyClosedFailed,
+				"closed bead recorded verification fail"})
+		}
+		if m.Verification == verificationStalePass {
+			out = append(out, anomaly{m.ID, anomalyStalePass,
+				"verification pass recorded on a non-closed bead"})
+		}
+		// An unrecognised value is already reported as unverified, so it is
+		// not an outcome missing a commit; it never reaches this test.
+		if isRecordedOutcome(m.Verification) && m.VerificationCommit == nil {
+			out = append(out, anomaly{m.ID, anomalyNoCommit,
+				"verification recorded with no verification_commit, so the " +
+					"outcome names no implementation"})
+		}
+	}
+	return out
+}
+
+// isRecordedOutcome reports whether a value came from an actual recorded
+// outcome, which is what makes a missing commit an integrity problem.
+func isRecordedOutcome(verification string) bool {
+	switch verification {
+	case verificationPass, verificationFail, verificationStalePass:
+		return true
+	}
+	return false
 }
 
 // computeStop derives the stop summary from data the projection already holds

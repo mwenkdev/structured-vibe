@@ -79,7 +79,22 @@ Routine low-risk beads that pass verification do not need line-by-line human rev
 
 ## Record the result
 
-Associate the verification outcome with the bead and the implementation, and record the commit or commit range. For each executed bead, a compact observational record is useful:
+Record the outcome in `bd` **before the bead is closed**, with these two writes **in this order**:
+
+```bash
+bd update <id> --set-metadata verification_commit=<sha>
+bd set-state <id> verification=pass|fail --reason "<summary>"
+```
+
+**Order matters.** Writing the commit binding first means an interruption leaves a commit with no outcome, which reads as *unverified* — the safe, truthful failure. The reverse order could publish an authoritative-looking `pass` naming no traceable implementation. An outcome recorded without a commit is reported as an anomaly, not as a normal verified result.
+
+**The values are `pass` and `fail` only.** ESCALATE is lifecycle state — the bead stays open — not a verification result. Never record any other value: a reader treats an unrecognised value as unverified.
+
+PASS is recorded, and only then may the bead close. REJECT records `fail` and leaves the bead open, which is ordinary in-flight state. ESCALATE records nothing and leaves the bead open. A *closed* bead carrying `fail` is a lifecycle-integrity anomaly.
+
+Re-verification overwrites both writes, so the record always describes the latest verification.
+
+For each executed bead, a compact observational record is also useful:
 
 ```text
 bead_id
