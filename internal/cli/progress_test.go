@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -15,15 +16,18 @@ import (
 
 // --- fixture work graph ---------------------------------------------------
 
-// fixtureIssue mirrors one bd list record. parent is omitempty so the fixture
-// reproduces bd's real behaviour of omitting the key entirely when empty.
+// fixtureIssue mirrors one bd list record. parent, labels and metadata are
+// omitempty so the fixture reproduces bd's real behaviour of omitting those
+// keys entirely when empty.
 type fixtureIssue struct {
-	ID        string `json:"id"`
-	Title     string `json:"title,omitempty"`
-	Status    string `json:"status"`
-	IssueType string `json:"issue_type"`
-	Priority  int    `json:"priority,omitempty"`
-	Parent    string `json:"parent,omitempty"`
+	ID        string         `json:"id"`
+	Title     string         `json:"title,omitempty"`
+	Status    string         `json:"status"`
+	IssueType string         `json:"issue_type"`
+	Priority  int            `json:"priority,omitempty"`
+	Parent    string         `json:"parent,omitempty"`
+	Labels    []string       `json:"labels,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
 // fixture is a whole fake work graph: the three data calls of the read
@@ -616,6 +620,380 @@ func TestProgressOutOfSubtreeBlockerResolves(t *testing.T) {
 	}
 }
 
+// --- stop (D11) -----------------------------------------------------------
+
+// decodeStop returns the stop object, failing if it is absent or null.
+func decodeStop(t *testing.T, res map[string]any) map[string]any {
+	t.Helper()
+	stop, ok := res["stop"].(map[string]any)
+	if !ok {
+		t.Fatalf("stop = %v, want a non-null object", res["stop"])
+	}
+	return stop
+}
+
+// stopReasons flattens stop.reasons into ordered category/member pairs.
+func stopReasons(t *testing.T, stop map[string]any) []struct {
+	category string
+	members  []string
+} {
+	t.Helper()
+	var out []struct {
+		category string
+		members  []string
+	}
+	for _, raw := range stop["reasons"].([]any) {
+		r := raw.(map[string]any)
+		entry := struct {
+			category string
+			members  []string
+		}{category: r["category"].(string)}
+		for _, m := range r["members"].([]any) {
+			entry.members = append(entry.members, m.(string))
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// TestProgressStopCategories drives each D11 category on a dedicated fixture.
+// Every case is stopped: no member is available or active.
+func TestProgressStopCategories(t *testing.T) {
+	cases := []struct {
+		name        string
+		issues      []fixtureIssue
+		blocked     map[string][]string
+		wantReasons []struct {
+			category string
+			members  []string
+		}
+	}{
+		{
+			name: "dependency_blocked: a blocked member with a named blocker",
+			issues: []fixtureIssue{
+				{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+				task("sv-1.1", "sv-1", "open"),
+			},
+			blocked: map[string][]string{"sv-1.1": {"sv-zzz"}},
+			wantReasons: []struct {
+				category string
+				members  []string
+			}{{stopDependencyBlocked, []string{"sv-1.1"}}},
+		},
+		{
+			// Stored-blocked with no dependency edge has no blocker to name,
+			// so reporting it as dependency_blocked would promise detail that
+			// does not exist.
+			name: "stored_blocked: stored status blocked with no named blockers",
+			issues: []fixtureIssue{
+				{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+				task("sv-1.1", "sv-1", "blocked"),
+			},
+			wantReasons: []struct {
+				category string
+				members  []string
+			}{{stopStoredBlocked, []string{"sv-1.1"}}},
+		},
+		{
+			name: "deferred: deliberately deferred work",
+			issues: []fixtureIssue{
+				{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+				task("sv-1.1", "sv-1", "deferred"),
+			},
+			wantReasons: []struct {
+				category string
+				members  []string
+			}{{stopDeferred, []string{"sv-1.1"}}},
+		},
+		{
+			name: "unclassified: a status no bucket rule claims",
+			issues: []fixtureIssue{
+				{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+				task("sv-1.1", "sv-1", "wibble"),
+			},
+			wantReasons: []struct {
+				category string
+				members  []string
+			}{{stopUnclassified, []string{"sv-1.1"}}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := fixture{issues: tc.issues, blocked: tc.blocked}
+			stop := decodeStop(t, decodeResult(t, mustRun(t, fx, "sv-1")))
+
+			if stop["stopped"] != true {
+				t.Fatalf("stopped = %v, want true", stop["stopped"])
+			}
+			if stop["complete"] != false {
+				t.Errorf("complete = %v, want false", stop["complete"])
+			}
+
+			got := stopReasons(t, stop)
+			if len(got) != len(tc.wantReasons) {
+				t.Fatalf("reasons = %+v, want %+v", got, tc.wantReasons)
+			}
+			for i, want := range tc.wantReasons {
+				if got[i].category != want.category {
+					t.Errorf("reasons[%d].category = %q, want %q", i, got[i].category, want.category)
+				}
+				if !equalStrings(got[i].members, want.members) {
+					t.Errorf("reasons[%d].members = %v, want %v", i, got[i].members, want.members)
+				}
+			}
+		})
+	}
+}
+
+// TestProgressStopMixedCategories covers a subtree stopped for several
+// distinct reasons at once: every applicable category is listed, in the fixed
+// D11 order, with the correct members under each.
+func TestProgressStopMixedCategories(t *testing.T) {
+	fx := fixture{
+		issues: []fixtureIssue{
+			{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+			task("sv-1.1", "sv-1", "closed"),
+			task("sv-1.2", "sv-1", "open"),     // dependency_blocked
+			task("sv-1.3", "sv-1", "blocked"),  // stored_blocked
+			task("sv-1.4", "sv-1", "deferred"), // deferred
+			task("sv-1.5", "sv-1", "wibble"),   // unclassified
+			task("sv-1.6", "sv-1", "open"),     // dependency_blocked
+		},
+		blocked: map[string][]string{
+			"sv-1.2": {"sv-zzz"},
+			"sv-1.6": {"sv-1.2"},
+		},
+	}
+
+	stop := decodeStop(t, decodeResult(t, mustRun(t, fx, "sv-1")))
+	if stop["stopped"] != true {
+		t.Fatalf("stopped = %v, want true", stop["stopped"])
+	}
+
+	want := []struct {
+		category string
+		members  []string
+	}{
+		{stopDependencyBlocked, []string{"sv-1.2", "sv-1.6"}},
+		{stopStoredBlocked, []string{"sv-1.3"}},
+		{stopDeferred, []string{"sv-1.4"}},
+		{stopUnclassified, []string{"sv-1.5"}},
+	}
+
+	got := stopReasons(t, stop)
+	if len(got) != len(want) {
+		t.Fatalf("reasons = %+v, want %d categories in D11 order", got, len(want))
+	}
+	for i := range want {
+		if got[i].category != want[i].category {
+			t.Errorf("reasons[%d].category = %q, want %q (fixed D11 order)",
+				i, got[i].category, want[i].category)
+		}
+		if !equalStrings(got[i].members, want[i].members) {
+			t.Errorf("reasons[%d].members = %v, want %v (sorted by id ascending)",
+				i, got[i].members, want[i].members)
+		}
+	}
+
+	// A populated reasons list is the part of the schema most exposed to
+	// iteration order, so byte-stability is asserted here rather than only on
+	// the non-stopped fixture the general determinism test uses.
+	if first, permuted := mustRun(t, fx, "sv-1"), mustRun(t, fx.reversed(), "sv-1"); first != permuted {
+		t.Errorf("permuted bd response order changed stdout:\n%s\n---\n%s", first, permuted)
+	}
+}
+
+// TestProgressStoppedImpliesReasons is the guard in one direction: a stopped
+// result can never carry an empty reasons list. It is structural, not
+// defensive - a stopped subtree has no available or active members, so every
+// outstanding member falls into some category.
+func TestProgressStoppedImpliesReasons(t *testing.T) {
+	fixtures := []fixture{
+		{issues: []fixtureIssue{
+			{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+			task("sv-1.1", "sv-1", "deferred"),
+		}},
+		{issues: []fixtureIssue{
+			{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+			task("sv-1.1", "sv-1", "blocked"),
+			task("sv-1.2", "sv-1", "wibble"),
+		}},
+		{
+			issues: []fixtureIssue{
+				{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+				task("sv-1.1", "sv-1", "closed"),
+				task("sv-1.2", "sv-1", "open"),
+			},
+			blocked: map[string][]string{"sv-1.2": {"sv-1.1"}},
+		},
+	}
+
+	for i, fx := range fixtures {
+		stop := decodeStop(t, decodeResult(t, mustRun(t, fx, "sv-1")))
+		if stop["stopped"] != true {
+			t.Fatalf("fixture %d: stopped = %v, want true", i, stop["stopped"])
+		}
+		if reasons := stop["reasons"].([]any); len(reasons) == 0 {
+			t.Errorf("fixture %d: stopped with an empty reasons list", i)
+		}
+	}
+}
+
+// TestProgressNotStoppedHasEmptyReasons is the converse guard (R-20):
+// reasons is populated only when stopped is true.
+func TestProgressNotStoppedHasEmptyReasons(t *testing.T) {
+	cases := []struct {
+		name         string
+		fx           fixture
+		wantComplete bool
+	}{
+		{
+			// Available work exists, so the subtree has not stopped even
+			// though other members are blocked and deferred.
+			name: "available work exists",
+			fx: fixture{
+				issues: []fixtureIssue{
+					{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+					task("sv-1.1", "sv-1", "open"),
+					task("sv-1.2", "sv-1", "deferred"),
+					task("sv-1.3", "sv-1", "blocked"),
+				},
+				ready: []string{"sv-1.1"},
+			},
+		},
+		{
+			name: "active work exists",
+			fx: fixture{issues: []fixtureIssue{
+				{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+				task("sv-1.1", "sv-1", "in_progress"),
+				task("sv-1.2", "sv-1", "deferred"),
+			}},
+		},
+		{
+			name: "all countable members completed",
+			fx: fixture{issues: []fixtureIssue{
+				{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+				task("sv-1.1", "sv-1", "closed"),
+				task("sv-1.2", "sv-1", "closed"),
+			}},
+			wantComplete: true,
+		},
+		{
+			// Containers and pinned beads only: nothing to finish, so the
+			// subtree is neither stopped nor complete.
+			name: "zero countable members",
+			fx: fixture{issues: []fixtureIssue{
+				{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+				{ID: "sv-1.c", Status: "open", IssueType: "milestone", Parent: "sv-1"},
+				task("sv-1.p", "sv-1", "pinned"),
+			}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stop := decodeStop(t, decodeResult(t, mustRun(t, tc.fx, "sv-1")))
+
+			if stop["stopped"] != false {
+				t.Errorf("stopped = %v, want false", stop["stopped"])
+			}
+			if reasons, ok := stop["reasons"].([]any); !ok || len(reasons) != 0 {
+				t.Errorf("reasons = %v, want [] when not stopped", stop["reasons"])
+			}
+			if stop["complete"] != tc.wantComplete {
+				t.Errorf("complete = %v, want %v", stop["complete"], tc.wantComplete)
+			}
+		})
+	}
+}
+
+// TestProgressStopReadsNoVerificationData guards M3's independence from M2:
+// the stop path must classify identically whether or not verification labels
+// and metadata are present, so the two milestones can land in either order.
+func TestProgressStopReadsNoVerificationData(t *testing.T) {
+	plain := fixture{
+		issues: []fixtureIssue{
+			{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+			task("sv-1.1", "sv-1", "closed"),
+			task("sv-1.2", "sv-1", "open"),
+			task("sv-1.3", "sv-1", "deferred"),
+		},
+		blocked: map[string][]string{"sv-1.2": {"sv-1.1"}},
+	}
+
+	// The same graph, with verification state recorded on every member.
+	verified := fixture{issues: []fixtureIssue{}, blocked: plain.blocked}
+	for _, is := range plain.issues {
+		is.Labels = []string{"verification:pass"}
+		is.Metadata = map[string]any{"verification_commit": "a1b2c3d4"}
+		verified.issues = append(verified.issues, is)
+	}
+
+	before := decodeStop(t, decodeResult(t, mustRun(t, plain, "sv-1")))
+	after := decodeStop(t, decodeResult(t, mustRun(t, verified, "sv-1")))
+
+	if !reflect.DeepEqual(before, after) {
+		t.Errorf("stop changed when verification data was present:\n%+v\n%+v", before, after)
+	}
+}
+
+// TestProgressStopOutOfSubtreeBlocker pins that a blocker outside the subtree
+// still produces dependency_blocked, with its status resolved from the
+// full-issue map rather than an extra bd call.
+func TestProgressStopOutOfSubtreeBlocker(t *testing.T) {
+	fx := fixture{
+		issues: []fixtureIssue{
+			{ID: "sv-1", Title: "root", Status: "open", IssueType: "epic"},
+			task("sv-1.1", "sv-1", "open"),
+			{ID: "sv-zzz", Title: "outsider", Status: "open", IssueType: "task"},
+		},
+		blocked: map[string][]string{"sv-1.1": {"sv-zzz"}},
+	}
+
+	var argv [][]string
+	got := runProgressRecording(t, fx, &argv, "progress", "sv-1", "--json")
+	if got.err != nil {
+		t.Fatalf("progress failed: %v\n%s", got.err, got.stderr)
+	}
+	if len(argv) != 4 {
+		t.Errorf("bd invocations = %d, want exactly 4: stop introduces no new call", len(argv))
+	}
+
+	res := decodeResult(t, got.stdout)
+	reasons := stopReasons(t, decodeStop(t, res))
+	if len(reasons) != 1 || reasons[0].category != stopDependencyBlocked {
+		t.Fatalf("reasons = %+v, want one dependency_blocked", reasons)
+	}
+
+	entry := res["members"].([]any)[0].(map[string]any)["blocked_by"].([]any)[0].(map[string]any)
+	if entry["id"] != "sv-zzz" || entry["in_subtree"] != false || entry["status"] != "open" {
+		t.Errorf("blocked_by[0] = %v, want sv-zzz resolved with in_subtree false", entry)
+	}
+}
+
+func TestProgressStopHumanOutput(t *testing.T) {
+	fx := fixture{
+		issues: []fixtureIssue{
+			{ID: "sv-1", Title: "root epic", Status: "open", IssueType: "epic"},
+			task("sv-1.1", "sv-1", "closed"),
+			task("sv-1.2", "sv-1", "open"),
+			task("sv-1.3", "sv-1", "deferred"),
+		},
+		blocked: map[string][]string{"sv-1.2": {"sv-1.1"}},
+	}
+
+	got := runProgressFixture(t, fx, "progress", "sv-1")
+	if got.err != nil {
+		t.Fatalf("progress failed: %v\n%s", got.err, got.stderr)
+	}
+	for _, want := range []string{"stopped", stopDependencyBlocked, "sv-1.2", stopDeferred, "sv-1.3"} {
+		if !strings.Contains(got.stdout, want) {
+			t.Errorf("human output omits %q:\n%s", want, got.stdout)
+		}
+	}
+}
+
 // --- output schema --------------------------------------------------------
 
 func TestProgressSchemaKeysAlwaysPresent(t *testing.T) {
@@ -635,12 +1013,22 @@ func TestProgressSchemaKeysAlwaysPresent(t *testing.T) {
 		}
 	}
 
-	// Reserved until later milestones.
+	// Reserved until M2.
 	if res["verification_counts"] != nil {
-		t.Errorf("verification_counts = %v, want null in M1", res["verification_counts"])
+		t.Errorf("verification_counts = %v, want null in M2", res["verification_counts"])
 	}
-	if res["stop"] != nil {
-		t.Errorf("stop = %v, want null in M1", res["stop"])
+
+	// stop is populated from M3 on and is a non-null object in every
+	// successful result, so a consumer never distinguishes "not stopped"
+	// from "not computed".
+	stop, ok := res["stop"].(map[string]any)
+	if !ok {
+		t.Fatalf("stop = %v, want a non-null object", res["stop"])
+	}
+	for _, k := range []string{"stopped", "complete", "reasons"} {
+		if _, present := stop[k]; !present {
+			t.Errorf("stop key %q is absent", k)
+		}
 	}
 	if a, ok := res["anomalies"].([]any); !ok || len(a) != 0 {
 		t.Errorf("anomalies = %v, want []", res["anomalies"])

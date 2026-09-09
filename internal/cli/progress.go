@@ -5,6 +5,7 @@ import (
 	"io"
 	"math"
 	"sort"
+	"strings"
 
 	"github.com/mwenkdev/structured-vibe/internal/bd"
 	"github.com/mwenkdev/structured-vibe/internal/cliout"
@@ -84,13 +85,10 @@ type progressResult struct {
 
 	Members []member `json:"members"`
 
-	// VerificationCounts, Anomalies and Stop are reserved. Their shapes are
-	// fixed by the specification; M2 populates verification and anomalies and
-	// M3 populates stop. They are emitted as null and [] so no consumer
-	// breaks when they start carrying data.
-	VerificationCounts any   `json:"verification_counts"`
-	Anomalies          []any `json:"anomalies"`
-	Stop               any   `json:"stop"`
+	// VerificationCounts, Anomalies are reserved for M2. Stop is populated in M3.
+	VerificationCounts any         `json:"verification_counts"`
+	Anomalies          []any       `json:"anomalies"`
+	Stop               *stopResult `json:"stop"`
 }
 
 // rootRef identifies the subtree root, which is never its own member.
@@ -149,6 +147,44 @@ type blocker struct {
 	InSubtree bool    `json:"in_subtree"`
 }
 
+// Stop reason categories: the closed vocabulary of D11.
+//
+// stopCategoryOrder fixes serialization order, so reasons never inherit map
+// or bucket iteration order and output stays byte-stable.
+const (
+	stopDependencyBlocked = "dependency_blocked"
+	stopStoredBlocked     = "stored_blocked"
+	stopDeferred          = "deferred"
+	stopUnclassified      = "unclassified"
+)
+
+var stopCategoryOrder = []string{
+	stopDependencyBlocked,
+	stopStoredBlocked,
+	stopDeferred,
+	stopUnclassified,
+}
+
+// stopReason is one categorised reason, naming the members that caused it.
+//
+// It introduces no blocker data of its own: members are referenced by id and
+// their blocker detail already lives on members[].blocked_by (D11).
+type stopReason struct {
+	Category string   `json:"category"`
+	Members  []string `json:"members"`
+}
+
+// stopResult is the subtree-level stop summary (D6, D11).
+//
+// It is a non-null object in every successful result, so a consumer never has
+// to distinguish "not stopped" from "not computed". Reasons is populated only
+// when Stopped is true and is otherwise an empty list.
+type stopResult struct {
+	Stopped  bool         `json:"stopped"`
+	Complete bool         `json:"complete"`
+	Reasons  []stopReason `json:"reasons"`
+}
+
 func (r *progressResult) PrintHuman(w io.Writer) {
 	fmt.Fprintf(w, "root:     %s  %s\n", r.Root.ID, r.Root.Title)
 	fmt.Fprintf(w, "type:     %s (%s)\n", r.Root.IssueType, r.Root.Status)
@@ -160,6 +196,25 @@ func (r *progressResult) PrintHuman(w io.Writer) {
 	} else {
 		fmt.Fprintf(w, "%.1f%% (%d/%d complete)\n",
 			*r.CompletionRatio*100, r.Counts.Completed, r.Counts.TotalCountable)
+	}
+
+	// Presentation only: the same structural data the JSON carries, with no
+	// interpretation and nothing the machine-readable form does not have.
+	if s := r.Stop; s != nil {
+		fmt.Fprintf(w, "state:    ")
+		switch {
+		case s.Complete:
+			fmt.Fprintln(w, "complete (all countable members closed)")
+		case s.Stopped:
+			fmt.Fprintln(w, "stopped (no available or active work)")
+		case r.Counts.TotalCountable == 0:
+			fmt.Fprintln(w, "no countable work in this subtree")
+		default:
+			fmt.Fprintln(w, "in progress")
+		}
+		for _, reason := range s.Reasons {
+			fmt.Fprintf(w, "  %-20s %s\n", reason.Category, strings.Join(reason.Members, ", "))
+		}
 	}
 
 	c := r.Counts
@@ -299,7 +354,74 @@ func project(snap *bd.Snapshot, root bd.Issue) (*progressResult, diag.Diagnostic
 
 	res.Counts.TotalCountable = res.Counts.countable()
 	res.CompletionRatio = ratio(res.Counts.Completed, res.Counts.TotalCountable)
+
+	res.Stop = computeStop(res)
 	return res, d
+}
+
+// computeStop derives the stop summary from data the projection already holds
+// (D11). It reads bucket assignments and blocked_by detail only: no new bd
+// call, no dependency-edge walk, and deliberately no verification data.
+//
+// Structural only. It reports that work has halted and which members caused
+// it; it never interprets why a blocker is hard or advises how to clear it.
+func computeStop(res *progressResult) *stopResult {
+	c := res.Counts
+	outstanding := c.TotalCountable - c.Completed
+
+	out := &stopResult{
+		// Complete means every countable member is closed. A zero-countable
+		// subtree is not complete: there was no work to finish.
+		Complete: c.TotalCountable > 0 && outstanding == 0,
+		// Stopped means work remains but nothing can be picked up and nothing
+		// is under way.
+		Stopped: outstanding > 0 && c.Available == 0 && c.Active == 0,
+		Reasons: []stopReason{},
+	}
+	if !out.Stopped {
+		return out
+	}
+
+	// Members are already sorted by id ascending, so appending in iteration
+	// order keeps every reason's member list sorted without re-sorting.
+	byCategory := map[string][]string{}
+	for _, m := range res.Members {
+		if cat := stopCategoryOf(m); cat != "" {
+			byCategory[cat] = append(byCategory[cat], m.ID)
+		}
+	}
+
+	for _, cat := range stopCategoryOrder {
+		if members := byCategory[cat]; len(members) > 0 {
+			out.Reasons = append(out.Reasons, stopReason{Category: cat, Members: members})
+		}
+	}
+	return out
+}
+
+// stopCategoryOf maps one member to its D11 stop category, or "" when the
+// member is not a reason for the subtree being stopped.
+//
+// A stopped subtree has no available or active members, so every outstanding
+// member lands in exactly one category here. That is what makes the
+// "stopped implies at least one reason" guarantee structural rather than
+// defensive.
+func stopCategoryOf(m member) string {
+	switch m.Bucket {
+	case bucketBlocked:
+		// The split is whether Beads named a blocker. A stored-blocked bead
+		// with no dependency edge has nothing to name, and reporting it as
+		// dependency_blocked would promise blocker detail that does not exist.
+		if len(m.BlockedBy) > 0 {
+			return stopDependencyBlocked
+		}
+		return stopStoredBlocked
+	case bucketDeferred:
+		return stopDeferred
+	case bucketUnclassified:
+		return stopUnclassified
+	}
+	return ""
 }
 
 // membership walks parent-child edges breadth-first from the root (D8).
