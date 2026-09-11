@@ -601,6 +601,77 @@ observability. The version skew between the pinned 1.18.15 package and the
 tested 1.18.30 runtime is recorded but was not load-bearing for any result
 above; M3 should pin the tested range deliberately.
 
+Recorded 2026-09-11 by `sv-e85.2` against the same runtime **1.18.30**, using
+`opencode serve` in an isolated sandbox with `XDG_CONFIG_HOME` redirected so
+no real user command file was read or written. Prototype fixtures only.
+
+**F-12 — File fallback delivers working commands in both contexts, with the
+same observability as injection.** A project file at
+`.opencode/commands/svibe-file.md` registered and invoked successfully inside
+Git; a user file at `<config>/opencode/commands/svibe-user.md` did the same
+outside Git. In both cases `command.execute.before` carried the substituted
+template and `command.executed` carried name, session ID, arguments, and
+message ID, with exact `$ARGUMENTS` passthrough. Project command files are
+correctly invisible outside their repository. The documented directories in D3
+are confirmed, including the plural `commands/` spelling at both scopes. This
+run also independently reconfirmed F-10: outside Git, `worktree` was `/` while
+`directory` was the launch directory.
+
+**F-13 — Effective-source precedence map.** For a single command name defined
+in every source simultaneously, the host resolved them in this order, highest
+first:
+
+1. plugin injection via the `config` hook;
+2. project command file (`.opencode/commands/`);
+3. user command file (`<config>/opencode/commands/`);
+4. project config (`opencode.json` `command`);
+5. user config (`<config>/opencode/opencode.json` `command`).
+
+Two results here are not obvious and are load-bearing for D6: **command files
+outrank config entries at both scopes**, and **plugin injection outranks every
+file and config source**. The latter means a plugin that writes
+unconditionally silently replaces user content, which is precisely the
+behavior D3 and D6 forbid svibe from exhibiting.
+
+**F-14 — D6's skip rule is enforceable against every non-plugin source.** The
+`config` hook receives a command map in which all four non-plugin sources are
+already merged, including their templates. A probe injector observed the
+winning project-file definition before writing its own. The plugin can
+therefore detect a same-name command originating from any file or config
+source and abstain, as D6 requires. This inverts the risk flagged when this
+bead was finalized: the concern was that file-defined commands might be
+resolved after plugin hooks and so be undetectable. They are not.
+
+**F-15 — Alternate-form detection is enforceable.** A colon-named command
+defined in user config was present in the map at plugin-hook time, and both
+`svibe-clash` and `svibe:clash` were visible simultaneously in the merged
+list. The plugin can therefore check for the reserved alternate form before
+registering. Note the asymmetry D6 must encode: the colon form is reachable
+only through config or injection, never through files, because the filename
+becomes the command name.
+
+**F-16 — The host API exposes no provenance.** Every command reports
+`source: "command"` regardless of whether it came from a project file, a user
+file, project config, user config, or plugin injection. The plugin can observe
+a command's presence, name, and template, but cannot attribute its origin.
+Consequently D6's plugin-side diagnostics can report *that* a conflict exists
+and name the command, but cannot name the source; attribution must come from
+sync and status inspecting the filesystem and config directly. Template
+content is the only discriminator available in-process, and it is not a
+trustworthy ownership signal on its own.
+
+**F-17 — Plugin ordering is last-writer-wins.** With two injectors registering
+the same name, the later one in the plugin list won, in both orderings tested.
+An earlier plugin can see nothing of a later one, while a later plugin sees the
+earlier definition. This confirms the host-ordering limitation D6 already
+documents: svibe can detect and defer to plugins loaded before it, but cannot
+prevent or observe replacement by a plugin loaded after it.
+
+**Gate result: the fallback mechanism passes, and the precedence map is
+complete.** Both delivery mechanisms are viable on 1.18.30, so the human
+decision to retain a file fallback is supported by evidence rather than
+assumption. No escalation condition was reached.
+
 ## Open Questions
 
 None requiring product adjudication before decomposition. The delivery
