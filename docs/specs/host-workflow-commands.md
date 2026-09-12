@@ -1,7 +1,8 @@
 # Specification: Host Workflow Command Definitions
 
 Bead: `sv-e85`
-Status: revision 5 — findings R-01..R-18 addressed; awaiting review
+Status: revision 6 — findings R-01..R-29 addressed; the target safety contract
+is unresolved pending M1b
 Roadmap: not yet listed; consumed by `docs/ROADMAP.md` "Deterministic next-step
 guidance" and "Command and identifier completion"
 
@@ -22,6 +23,11 @@ a command names the skill, carries the target, and nothing else. OpenCode
 submits that prompt to the model; it does not mechanically execute the skill
 tool, so this feature does not claim that every invocation guarantees a load.
 
+Carrying a target turned out to be the hard part. The host interprets command
+template text, and F-18 shows it interprets text introduced through the target
+as well. A command that carries a target must therefore deliver it without
+handing it to that interpreter (D5, D9).
+
 ## Scope
 
 ### Included
@@ -34,6 +40,8 @@ tool, so this feature does not claim that every invocation guarantees a load.
   generated-file fallback (human decision 2026-09-10).
 - Sync fingerprint, status, and transactionality coverage for the new payload.
 - Structural validation of command definitions.
+- A target safety contract: delivering the canonical target to the model
+  without the host interpreting it (D5, D9).
 - Collision policy against user- and project-defined commands.
 - Documentation, including the architecture amendment the plugin capability
   requires.
@@ -48,8 +56,10 @@ tool, so this feature does not claim that every invocation guarantees a load.
   fresh-context creation remain human- and host-owned; routing and context
   isolation are separate roadmap capabilities. The command schema keeps these
   fields absent, not defaulted.
-- Parsing, validating, or completing the target argument inside the command.
-  Commands pass it through opaquely.
+- Interpreting, resolving, or completing the *meaning* of the target. Commands
+  carry it opaquely and phase semantics belong to the skills. This exclusion
+  covers semantics only. How the target is delivered without being interpreted
+  by the host is in scope (D5, D9).
 - Host integrations other than OpenCode.
 - Any change to skill resolution, precedence, or the ordinary-skill model.
 
@@ -58,10 +68,11 @@ tool, so this feature does not claim that every invocation guarantees a load.
 ### D1 — Commands are pointers to skills, not a second behavior definition
 
 Each command's template requests that the model load the named `sv-*` skill via
-the host's normal skill tool and apply it to the target in `$ARGUMENTS`. The
-template contains no workflow instructions, no outcome vocabulary, and no
-procedural content. One sentence of intent, the skill request, and D5's
-one-sentence empty-target stop instruction are the ceiling.
+the host's normal skill tool and apply it to the delivered target. How the
+target reaches the model is settled by D5 and is not necessarily template
+interpolation. The template contains no workflow instructions, no outcome
+vocabulary, and no procedural content. One sentence of intent, the skill
+request, and D5's one-sentence empty-target stop instruction are the ceiling.
 
 Because the snapshot already contains the *winning* skill for each name —
 project and user overrides included — a command that loads `sv-plan` by name
@@ -247,28 +258,53 @@ that state and is reported as conflicted. A journaled interruption may expose
 both owned forms temporarily and is reported as `delivery_pending` until
 recovered.
 
-### D5 — One opaque target argument
+### D5 — One opaque target, delivered without host interpretation
 
-Each command passes `$ARGUMENTS` through without semantic parsing, validation,
-or completion. The canonical target is the exact `arguments` string OpenCode
-exposes to `command.execute.before` after its own command-line parsing; the
-template receives that same value through `$ARGUMENTS`. A bead identifier, a
-specification path, or a free-text planning idea are all legal; meaning is
-phase-specific and owned by the skill and its consumers (`sv-vzf` revision 5,
-D6). The contract makes no claim to preserve quoting syntax that OpenCode
-removes before producing the canonical string.
+Each command carries exactly one canonical target and performs no semantic
+parsing, validation, or completion of it. The canonical target is the exact
+`arguments` string OpenCode exposes to `command.execute.before` after its own
+command-line parsing. A bead identifier, a specification path, or a free-text
+planning idea are all legal; meaning is phase-specific and owned by the skill
+and its consumers (`sv-vzf` revision 5, D6). The contract makes no claim to
+preserve quoting syntax that OpenCode removes before producing the canonical
+string.
 
 This preserves the consumer contract `sv-vzf` was specified against: one opaque
 canonical target per invocation, delivered as a distinct value rather than
 recovered from prose.
 
-Empty-target handling is best-effort with a defined floor. If M1 finds a host
-mechanism that can reject submission of an empty target, it is used. If not,
-each template carries one sentence instructing the model to stop and ask for a
-target when `$ARGUMENTS` is empty — within D1's ceiling — and consumers
-receive the empty canonical string and apply their own validation (`sv-vzf`
-D6 already treats it as an invalid record). M1 records which behavior was
-achieved; neither outcome fails the delivery mechanism.
+**Opaque is not inert.** F-18 establishes that on runtime 1.18.30, shell-output
+syntax introduced *only* through `$ARGUMENTS` is reprocessed during template
+expansion and executes, under both injection and file delivery. F-04 remains
+correct about what it measured — the hook `arguments` value and the
+`$ARGUMENTS` substitution agree — but agreement is not inertness.
+
+Three consequences bound every later milestone:
+
+1. **A template must not place the canonical target into text the host
+   expands** unless M1b proves that path inert for the delivery mode in
+   question. The target reaches the model through a channel that is not
+   rescanned.
+2. **Prompt text cannot mitigate this.** Host interpretation completes before
+   the model sees anything. `command.execute.before` observes already-executed
+   output and already-created side effects, so a hook that rewrites parts
+   scrubs evidence rather than preventing the effect. Contrast the empty-target
+   floor below, which is legitimately a model-behavior concern.
+3. **Documenting a narrower target grammar is not a control.** The host
+   interprets whatever the human types, so a declared grammar changes
+   expectations and not behavior. Target restrictions may be adopted for
+   usability, never claimed as safety.
+
+M1b determines, per delivery mode, whether an inert channel exists. Until it
+records one, no command definition ships (M2) and no delivery is published
+(M3) for that mode.
+
+Empty-target handling is best-effort with a defined floor. F-05 records that
+the host does not reject an empty target, so each template carries one sentence
+instructing the model to stop and ask for a target when the target is empty —
+within D1's ceiling — and consumers receive the empty canonical string and
+apply their own validation (`sv-vzf` D6 already treats it as an invalid
+record). This floor is unaffected by the inertness question.
 
 ### D6 — Collision behavior follows observable host precedence
 
@@ -324,7 +360,10 @@ Status therefore also validates snapshot payload shape, plugin/release byte
 compatibility, the observed OpenCode runtime contract, the delivery record, and
 every expected fallback file and hash. It distinguishes at least:
 `delivery_current`, `delivery_pending`, `delivery_missing`,
-`delivery_modified`, `delivery_conflicted`, and `delivery_incompatible`.
+`delivery_modified`, `delivery_conflicted`, `delivery_incompatible`, and
+`delivery_unsafe`. `delivery_unsafe` is distinct from `delivery_incompatible`:
+the runtime supports registration, but no inert target channel is available
+for the selected mode (D5, D9), so nothing was published.
 `delivery_current` identifies whether fallback is locally delivered or
 inherited from the user generation; a broken user authority is conflicted, not
 current. Observable effective-source or alternate-form collisions are likewise
@@ -341,6 +380,31 @@ payloads. This epic delivers observable invocations; it does not consume them.
 If commands delivered by either mechanism do not emit these signals, that
 mechanism fails its M1 gate even if invocation itself works, because the
 consuming epic's stated assumptions would be broken.
+
+### D9 — Target text is untrusted input, and unsafe delivery is withheld
+
+A target is not always a deliberate keystroke. `sv-vzf` D4 emits literal
+command strings such as `/svibe:finalize <id>` for a human or a model to reuse,
+and targets are plausibly pasted from generated guidance, documentation, a
+model response, an issue tracker, or a teammate's message. Structured Vibe
+therefore treats target text as untrusted input to the host.
+
+The boundary this epic must hold is narrow and absolute: **invoking a
+Structured Vibe command must not, by itself, cause host-side execution or file
+resolution derived from the target.** A command is a workflow convenience. It
+may fail to appear, and it may decline to run, but it may not turn routine
+invocation into an execution primitive. This is consistent with Structured
+Vibe not being an agent harness and not owning tool execution
+(architecture 2.2, 20).
+
+Human decision 2026-09-12: when a delivery mode cannot meet that boundary, it
+delivers nothing. Withholding is preferred over a documented hazard, because
+the hazard would be borne during ordinary use by a human who has no way to see
+it. Concretely, if M1b finds no inert channel for file fallback, fallback
+publishes no command files, status reports `delivery_unsafe`, and the commands
+are simply unavailable in that context. The existing constraint that `svibe`
+remains usable without the OpenCode integration makes that an acceptable
+degradation rather than a loss of the workflow.
 
 ## Constraints
 
@@ -362,7 +426,11 @@ consuming epic's stated assumptions would be broken.
 - The plugin injects only snapshot-derived definitions, never executes a
   command, and never mutates commands it did not create.
 - `svibe` remains usable without the OpenCode integration; commands are a host
-  convenience, not a workflow dependency.
+  convenience, not a workflow dependency. A withheld command set is an
+  acceptable outcome; an unsafe one is not (D9).
+- No delivered command may cause host-side execution or file resolution
+  derived from the target. Prompt or template instructions never count as
+  mitigation for host-side interpretation (D5).
 - New persistent state is limited to the versioned delivery record and a
   short-lived recovery journal required for safe fallback publication. Neither
   stores workflow state.
@@ -392,6 +460,8 @@ consuming epic's stated assumptions would be broken.
   `arguments` string and `$ARGUMENTS` substitution agree. Whether the host can
   reject an empty target before submission is determined and recorded; if it
   cannot, the D5 template floor applies. Neither outcome fails the mechanism.
+  This criterion tests agreement only. Inertness of the delivered target is
+  M1b's gate and is not satisfied by any result here.
 - Colon naming (`svibe:plan`) empirically accepted or rejected; the naming
   decision (D4) is recorded.
 - The tested OpenCode runtime range, plugin API/package version, and required
@@ -414,18 +484,56 @@ consuming epic's stated assumptions would be broken.
 - Findings are recorded against this specification, including the exact
   runtime and package versions tested.
 
+### M1b — Prove an inert target channel, per delivery mode
+
+**Dependencies:** M1.
+
+This milestone exists because M1's gates measured registration, observability,
+and string agreement, and none of them measured whether the delivered target
+is interpreted. F-18 shows it is.
+
+**Testable outcomes:**
+
+- Probes run in an explicitly owned process namespace or container with a
+  verified private endpoint. They never inspect, signal, or clean up
+  host-managed OpenCode processes, and they never read or write real user
+  configuration or command directories.
+- For every candidate channel and both delivery modes, target-only syntax
+  produces no side effect: shell-output syntax creates no marker, `@file`
+  references resolve nothing, and positional placeholders do not substitute.
+  Evidence is side-effect state plus raw hook and persisted-message parts,
+  never string comparison and never model prose.
+- Positive controls prove the harness detects each documented behavior when
+  the same syntax appears directly in the template. A control that fails to
+  demonstrate the behavior fails the gate rather than producing an
+  inconclusive pass.
+- The behavior of a template that omits any target reference is determined:
+  whether the host appends the arguments anyway, and whether an appended or
+  plugin-constructed message part is itself rescanned.
+- The `@file` question left open by F-19 is settled with a working positive
+  control.
+- F-18 is independently reproduced, since its original fixture tree no longer
+  exists.
+- The outcome is recorded per delivery mode: an inert channel is proven, or
+  none is available. A mode with no inert channel delivers nothing and reports
+  `delivery_unsafe` (D9).
+- If no inert channel exists for any mode, work stops and escalates: the epic
+  cannot deliver commands that carry a target.
+
 ### M2 — Managed templates and snapshot generation
 
-**Dependencies:** M1 (the recorded mechanism and naming decide the generated
-format).
+**Dependencies:** M1 and M1b (the recorded mechanism, naming, and inert target
+channel decide the generated format).
 
 **Testable outcomes:**
 
 - `core/commands/` contains seven definition sources; the managed manifest is
   regenerated through repository tooling and integrity checks cover them.
 - Each template requests its skill by name, carries the canonical target
-  opaquely, and contains no workflow instructions — enforced by a test
-  asserting template shape, not by convention.
+  opaquely through the channel M1b proved inert, and contains no workflow
+  instructions — enforced by a test asserting template shape, not by
+  convention. The shape test fails a template that routes the target through
+  an expansion path M1b did not clear.
 - `svibe sync` publishes command definitions into the snapshot. Publication
   keeps the registered `skills` path stable and requires no host
   re-registration. It either swaps one unit containing the generation or
@@ -441,7 +549,7 @@ format).
 
 ### M3 — Deliver commands to the host
 
-**Dependencies:** M1 and M2.
+**Dependencies:** M1, M1b, and M2.
 
 **Testable outcomes:**
 
@@ -449,6 +557,12 @@ format).
   contract via the sync-time probe, records the chosen mode and naming scheme,
   and status reports incompatible, unknown, or changed runtimes rather than
   silently assuming injection.
+- A mode with no inert target channel publishes nothing and reports
+  `delivery_unsafe`; tests prove no command files and no injection result from
+  that state, and that the condition is distinguishable from an incompatible
+  runtime.
+- Delivery tests assert target inertness end to end for whatever mode ships,
+  by side effect, not by comparing strings.
 - Under the primary mechanism: the plugin injects all seven commands from the
   correct snapshot at load time; each is invocable and observable per D8.
 - The plugin consults the delivery record before registering: fallback mode,
@@ -545,10 +659,18 @@ delivery. The hyphen form also works, so fallback naming remains available.
 **F-04 — The canonical target is an exact passthrough.** Verified for a bead
 id, a path, leading/internal/trailing whitespace, embedded single and double
 quotes, and shell metacharacters (`& | ; $HOME` backticks `#`). The host strips
-nothing, expands nothing, and interpolates nothing; `command.execute.before`'s
-`arguments` string and the `$ARGUMENTS` substitution agreed in every case.
-D5's caveat about quoting the host removes is vacuous on this runtime — but
-retain it, since it costs nothing and the behavior is undocumented.
+nothing and alters nothing between the two observation points;
+`command.execute.before`'s `arguments` string and the `$ARGUMENTS` substitution
+agreed in every case. D5's caveat about quoting the host removes is vacuous on
+this runtime — but retain it, since it costs nothing and the behavior is
+undocumented.
+
+**Amended in revision 6.** As originally written this finding said the host
+"expands nothing". That overstates the evidence. What was measured is
+*agreement between the hook value and the substituted value*. It says nothing
+about what happens to the substituted text afterward, and F-18 shows that text
+is reprocessed. Read F-04 as a passthrough result at the observation boundary
+only; do not read it as an inertness result.
 
 **F-05 — The host does not reject an empty target.** An empty `arguments`
 value returns HTTP 200 and substitutes to the empty string. **D5's template
@@ -672,11 +794,68 @@ complete.** Both delivery mechanisms are viable on 1.18.30, so the human
 decision to retain a file fallback is supported by evidence rather than
 assumption. No escalation condition was reached.
 
+**Both M1 gate results above predate the inertness question.** They establish
+that commands register, invoke, and are observable. They do not establish that
+the target they carry is safe to carry. F-18 is the reason M1b exists.
+
+Recorded 2026-09-11 by `sv-e85.14`, which escalated rather than completing.
+Runtime **1.18.30**, pinned package **@opencode-ai/plugin 1.18.15**, in a
+sandbox with `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, and `XDG_CACHE_HOME`
+redirected.
+
+**F-18 — Syntax introduced only through `$ARGUMENTS` is reprocessed, in both
+delivery modes.** Direct template controls produced `INJ_CONTROL_OUTPUT` and
+`FILE_CONTROL_OUTPUT` and created their sandbox markers, establishing that the
+harness detects the documented behavior. In the matched target cases, where
+the shell expression appeared *only* inside the arguments substituted at
+`$ARGUMENTS`, `command.execute.before` still reported the original expression
+in its `arguments` value — consistent with F-04 — while its output parts and
+the persisted user-message parts contained `INJ_TARGET_OUTPUT` and
+`FILE_TARGET_OUTPUT`, and both target-only markers were created on disk.
+
+Two consequences follow directly. Execution occurs during template expansion,
+**before** `command.execute.before` runs, so a plugin that rewrites parts at
+that hook removes the evidence and not the side effect. And because the result
+reproduces under markdown-file delivery, it is not a property of plugin
+injection that a different registration path would avoid.
+
+The same run found that positional placeholders behave differently: direct
+positional controls substituted, while placeholders introduced through
+`$ARGUMENTS` remained literal. Reprocessing is therefore selective, which is
+precisely why each syntax needs its own control rather than an inference from
+the others.
+
+*Provenance caveat.* The fixture tree under `/tmp/opencode/sv-e85-14` was
+subsequently removed by a temporary-directory cleaner, so the raw
+`observations.jsonl`, server log, and markers backing this finding no longer
+exist. The finding is recorded from the escalation record. M1b must reproduce
+it independently before any mitigation depends on its details.
+
+**F-19 — `@file` resolution through `$ARGUMENTS` is unsettled.** The `@file`
+positive controls in that run did not resolve, so the negative target-case
+result is inconclusive: a harness that cannot demonstrate the documented
+behavior cannot prove its absence. This is an independent risk from F-18 — if
+`@` references resolve after substitution, a target can pull arbitrary
+readable file contents into the prompt — and it needs its own working control
+under M1b.
+
 ## Open Questions
 
-None requiring product adjudication before decomposition. The delivery
+One empirical question is open and gates M2 and M3:
+
+- **Does an inert target channel exist, per delivery mode?** M1b answers it.
+  The candidate for injection is a template that does not reference the target
+  at all, with the plugin constructing the target-bearing part from the raw
+  hook `arguments` value. No candidate is currently known for markdown-file
+  fallback, since a file template can reference the target only through the
+  expansion path F-18 implicates. If none exists for a mode, D9's withholding
+  rule applies rather than a new question.
+
+The product decisions this raised are adjudicated. Human decision 2026-09-12:
+unsafe delivery is withheld rather than shipped with a documented hazard, and
+only template and delivery work is gated on the outcome. The delivery
 mechanism, naming fallback, command set, loading guarantee, and recoverable
-fallback transaction were adjudicated 2026-09-10. The snapshot's on-disk
+fallback transaction remain as adjudicated 2026-09-10. The snapshot's on-disk
 definition encoding and journal encoding are implementation details bounded by
 the contracts and milestones above.
 
@@ -690,7 +869,13 @@ the contracts and milestones above.
 - `command.execute.before` and `command.executed` fire for injected commands
   the same way they do for file-defined commands. M1 verifies.
 - One canonical opaque target string is sufficient for all seven commands;
-  nothing in the current skills requires a second positional argument.
+  nothing in the current skills requires a second positional argument. This
+  assumption survives F-18, but opacity is no longer free: it now requires a
+  delivery channel the host does not interpret (D5).
+- A target-bearing message part constructed by the plugin, or appended by the
+  host from a template that never references the target, is not itself
+  rescanned. This is the central assumption behind the primary candidate
+  channel and is unverified. M1b verifies rather than trusts it.
 - Injecting commands at plugin load reflects snapshot state at host startup;
   a resync during a session is not visible until restart. This matches the
   existing skills model and `sv-vzf` D9's restart-aware drift handling.
@@ -755,13 +940,46 @@ Resolutions:
   mode is current when an observable unowned source shadows the selected form
   or exposes the alternate form.
 
+The revision 5 review produced R-20 through R-29, all arising from the `sv-e85.14`
+escalation. That review ran in the same session that adjudicated the
+escalation, so it was not independent; revision 6 should be re-reviewed on a
+different high-capability model.
+
+- **R-20** (blocking) accepted: D5 is rewritten to separate opacity from
+  inertness and to state the reprocessing behavior directly.
+- **R-21** (blocking) accepted with human adjudication: D9 defines target text
+  as untrusted input and states the execution boundary; scope no longer
+  excludes delivery-side target handling.
+- **R-22** (blocking) accepted with human adjudication 2026-09-12: if fallback
+  cannot deliver an inert target it publishes nothing and reports
+  `delivery_unsafe`. The 2026-09-10 decision to retain fallback stands; it is
+  retained as a mechanism, not as a guarantee that it will always be usable.
+- **R-23** accepted: F-04 is amended in place rather than only superseded.
+- **R-24** accepted: M1's target criterion is explicitly scoped to agreement,
+  and M1b and M3 add side-effect inertness gates.
+- **R-25** accepted: F-19 records the inconclusive `@file` control and M1b
+  gates it separately with a working positive control.
+- **R-26** accepted: D7 gains `delivery_unsafe`, distinguished from
+  `delivery_incompatible`.
+- **R-27** accepted: D5 states that prompt text cannot mitigate host-side
+  interpretation, and contrasts it with the empty-target floor.
+- **R-28** accepted: the status line, open questions, and assumptions are
+  corrected.
+- **R-29** accepted: the sufficiency assumption is retained with its new cost
+  stated.
+
 The review also identified a pre-existing release-cancellation rollback risk.
 It is unrelated to this specification and is not included as a finding here;
 release automation remains governed separately by `docs/specs/releasing.md`.
 
 ## Next Step
 
-Run `/svibe:review sv-e85` on a different high-capability model against
-revision 5. After review and human approval, `sv-beads` compiles this
-specification into a dependency graph. Completion of this epic unblocks
-re-validation of `sv-vzf` revision 5 against the delivered mechanism.
+Review revision 6 on a different high-capability model, since the revision 5
+review was not independent. The graph already exists, so the change lands as
+amendments to it: M1b becomes a gating bead ahead of the M2 template work and
+the M3 delivery work, and `sv-e85.14` carries that gate.
+
+Completion of this epic unblocks re-validation of `sv-vzf` revision 5 against
+the delivered mechanism. If M1b finds no inert channel for any mode, that
+re-validation becomes an escalation instead, because `sv-vzf` assumes a
+command that can carry a target.
