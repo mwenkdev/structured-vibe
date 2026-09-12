@@ -1,11 +1,16 @@
 name: Release
 
-# Structured Vibe releases are transactional: a release and its tag exist only
-# if the entire pipeline completes successfully (docs/specs/releasing.md).
+# Structured Vibe releases are transactional: a full release and its tag exist
+# only if the entire pipeline completes successfully (docs/specs/releasing.md).
 #
 # A human creates the release, which creates the tag and triggers this
-# workflow. Any failure rolls back by deleting the release and its tag. There
-# is no tag-triggered workflow and no required workflow_dispatch step.
+# workflow. Any non-success conclusion the workflow can observe — step failure,
+# manual cancellation, or job timeout — rolls back by deleting the release and
+# its tag. Prereleases are exempt from that deletion and are retained instead,
+# so a prerelease may exist without a successful pipeline and carries no
+# completeness guarantee (docs/specs/release-rollback-coverage.md, D4).
+#
+# There is no tag-triggered workflow and no required workflow_dispatch step.
 
 on:
   release:
@@ -18,6 +23,11 @@ jobs:
   release:
     name: release
     runs-on: ubuntu-latest
+
+    # An explicit bound so a hung pipeline reaches a decision point long before
+    # the six-hour default. Exceeding it cancels the job rather than failing it,
+    # which is why the rollback guard below covers cancelled() as well.
+    timeout-minutes: 30
 
     # One job, so rollback has a single failure surface to react to. Go cross
     # compiles, so a build matrix would add parallel failure paths without
@@ -161,22 +171,67 @@ jobs:
             dist/checksums.txt \
             --clobber
 
-      # Rollback is intentionally simple: delete the release and its tag.
-      # No per-asset cleanup, no retry tags, no moving an existing tag, and no
-      # recursive repair of a failed rollback. If rollback itself fails, that
-      # failure is reported and the run remains the troubleshooting record.
+      # Rollback behavior itself lives in scripts/rollback-release.sh, which is
+      # tested in internal/release (docs/specs/release-rollback-coverage.md, D3).
+      # This step keeps only the guard, the bootstrap, and the call.
+      #
+      # The guard covers every non-success conclusion the workflow can observe.
+      # cancelled() is required because GitHub does not run failure() steps when
+      # a run is cancelled, and a job that exceeds timeout-minutes is cancelled
+      # rather than failed, so manual cancellation, timeout, and runner
+      # interruption would otherwise leave the release and tag published with no
+      # successful pipeline behind them (D1).
+      #
+      # The step timeout is shorter than the job timeout and shorter than the
+      # cancellation grace period, so a hanging rollback cannot outlive the
+      # window in which it is allowed to run.
+      #
+      # The properties this step is required to preserve are asserted by
+      # TestReleaseWorkflow* in internal/release, so a later edit cannot silently
+      # narrow the guard, drop a timeout, route the inputs back through step
+      # outputs, or make rollback depend on the checkout.
       - name: Roll back release and tag
-        if: failure()
+        if: failure() || cancelled()
+        timeout-minutes: 3
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.release.outputs.version }}
+          REPO: ${{ github.repository }}
+          # Straight from the release event, never through a step output: a run
+          # cancelled before "Identify release" completes has no step output to
+          # read, and that is precisely the case this rollback exists to cover
+          # (D3).
+          VERSION: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+          # An immutable commit SHA. A movable reference such as the release tag
+          # or a branch could be repointed between trigger and rollback; a SHA
+          # cannot. github.sha would fetch identical bytes for this trigger --
+          # nothing about the choice between them is load-bearing.
+          SCRIPT_SHA: ${{ github.workflow_sha }}
         run: |
-          set +e
-          echo "::warning::release pipeline failed; rolling back $VERSION"
-          gh release delete "$VERSION" --yes --cleanup-tag
-          status=$?
-          if [ "$status" -ne 0 ]; then
-            echo "::error::rollback failed for $VERSION; the release or tag may still exist"
-            exit "$status"
+          set -uo pipefail
+
+          echo "::warning::release pipeline reached a non-success conclusion; running rollback for $VERSION"
+
+          script="$RUNNER_TEMP/rollback-release.sh"
+
+          # Fetched from the contents API rather than read from the workspace.
+          # Cancellation can happen before checkout completes, and version
+          # validation fails before checkout even starts, so a script expected in
+          # the workspace would be absent in exactly those cases and rollback
+          # would degrade into a file-not-found failure (D3).
+          if ! gh api \
+            -H "Accept: application/vnd.github.raw" \
+            "repos/$REPO/contents/scripts/rollback-release.sh?ref=$SCRIPT_SHA" \
+            > "$script"; then
+            echo "::error::could not fetch the rollback script at $SCRIPT_SHA; rollback did not run and the release or tag may still exist"
+            exit 1
           fi
-          echo "rolled back $VERSION"
+
+          if [ ! -s "$script" ]; then
+            echo "::error::the rollback script fetched at $SCRIPT_SHA is empty; rollback did not run and the release or tag may still exist"
+            exit 1
+          fi
+
+          # The script decides what to delete and what to retain, and reports a
+          # retained prerelease on stdout, which is this run's own log.
+          bash "$script" "$VERSION" "$PRERELEASE" "$REPO"
