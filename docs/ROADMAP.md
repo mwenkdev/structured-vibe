@@ -47,6 +47,24 @@ Structured Vibe should be able to trace blocking dependencies, distinguish
 technical blockers from external dependencies and human decisions, and suggest
 a concrete path to resume work.
 
+### Host workflow commands
+
+<!-- bd: sv-e85 -->
+
+**Blocked on an OpenCode capability, not scheduled.**
+
+Real host commands for the core workflow skills are specified in
+`docs/specs/host-workflow-commands.md`, but delivery is withheld on OpenCode
+1.18.30. The host interprets command target text after substitution, executing
+shell expressions and resolving `@file` references the target supplies, and the
+only arrangement that avoids it depends on a positional-index guard that moves
+the failure threshold rather than removing it (D10, findings F-20..F-25).
+
+This unblocks only when a host provides an inert pre-interpretation transport
+for the target and the recorded probe matrix confirms it.
+
+The two capabilities below depend on this one and are blocked with it.
+
 ### Command and identifier completion
 
 <!-- bd: sv-7sq -->

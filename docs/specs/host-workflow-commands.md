@@ -1,8 +1,11 @@
 # Specification: Host Workflow Command Definitions
 
 Bead: `sv-e85`
-Status: revision 16 — findings R-01..R-18 and R-20..R-65 addressed (R-19 was
-never assigned); the target safety contract is unresolved pending M1b
+Status: revision 17 — **withheld on OpenCode 1.18.30**. Findings R-01..R-18 and
+R-20..R-65 addressed (R-19 was never assigned). M1b is complete and its answer
+is negative: the host provides no inert pre-interpretation transport for a
+command target, so D9's withholding rule applies and no delivery ships. This is
+a host capability limitation, not a failed implementation.
 Roadmap: not yet listed; consumed by `docs/ROADMAP.md` "Deterministic next-step
 guidance" and "Command and identifier completion"
 
@@ -29,6 +32,17 @@ as well. A command that carries a target must therefore deliver it without
 handing it to any interpretation mechanism represented by the release-managed
 probe contract (D5, D9). Unknown interpretation mechanisms introduced by a
 future host remain an explicitly accepted residual risk.
+
+**Outcome (human decision 2026-09-12, D10).** M1b answered that question for
+OpenCode 1.18.30 and the answer is no. F-20 through F-25 establish that the
+host interprets the target after substitution on every reachable path, and that
+the only inert arrangement depends on a positional-index guard that moves the
+failure threshold rather than removing it. Delivery is therefore withheld
+entirely on this host: no command definitions are generated, no delivery is
+published, and no production target-channel, probe-runner, or capability-cache
+primitive is built. The epic remains specified and can be re-enabled when a
+host offers an actually inert pre-interpretation transport and probes establish
+that it satisfies the invariants below.
 
 ## Scope
 
@@ -630,7 +644,48 @@ labelled block distinct from the instruction sentence — adopted as hygiene tha
 keeps the data/instruction split legible, never claimed as a control, exactly as
 D5's third consequence requires of anything in this class.
 
-## Constraints
+### D10 — Delivery is withheld on OpenCode 1.18.30
+
+Human decision 2026-09-12, adjudicating M1b's empirical result (F-20..F-25).
+
+**The host has no inert pre-interpretation transport for a command target.**
+F-20 establishes the pipeline order, and every arrangement that lets a target
+reach the model puts the target's own text through shell execution and `@file`
+resolution first. Omitting the target from the template does not help, because
+the host appends the raw arguments automatically before interpretation (F-22).
+
+**A positional-index guard is not a security control.** Suppressing the
+automatic append requires a positional placeholder, and a placeholder
+substitutes the target's tokens once the target supplies enough of them (F-24).
+`$999999` does not make a target inert; it relocates the threshold at which
+interpretation resumes. Neither that guard nor any declared maximum target
+length, token count, or character set may be described, documented, or relied
+on as a control. This is D5's third consequence applied to the specific
+mechanism M1b found.
+
+**Fallback does not satisfy D3.** A published markdown file must carry no
+target reference on an uncleared expansion path. The guard template necessarily
+carries one, so file fallback has no eligible channel and publishes nothing.
+
+**Consequences.** For OpenCode 1.18.30, and for any host that has not produced
+a passing probe result under a future probe contract:
+
+- no command definitions are generated into `core/commands/` or the snapshot;
+- no primary injection and no fallback publication occur;
+- no probe runner, capability cache, delivery record, artifact-derivation, or
+  shared target-channel primitive is implemented;
+- `svibe` continues to work exactly as it does today, because commands were
+  always a host convenience rather than a workflow dependency.
+
+**Re-enablement conditions.** This decision is scoped to an observed host
+capability, not to the design. The epic may resume when a host provides a
+transport that delivers the canonical target to the model *before* or *outside*
+the interpretation stages — for example a first-class argument value the host
+never re-scans, or a plugin insertion point that is structurally upstream of
+expansion — and M1b's probe matrix, rerun unchanged, shows that target-only
+shell, `@file`, and positional syntax produce no side effect under working
+positive controls, with no dependence on an index, a length bound, or a
+grammar restriction.
 
 - The seven templates contain no workflow behavior; the skills remain the only
   behavior definition (bead acceptance criteria; AGENTS.md).
@@ -886,6 +941,10 @@ M3 delivery behavior ships, per M3's closing outcome.
 
 ### M2 — Managed templates and snapshot generation
 
+**Status: not built.** M1b cleared no channel on OpenCode 1.18.30, so D10
+withholds this milestone. The outcomes below stand as the contract a future
+host must satisfy before any template ships.
+
 **Dependencies:** M1 and M1b (the recorded mechanism, naming, and probe-cleared
 target channel decide the generated format).
 
@@ -912,6 +971,12 @@ target channel decide the generated format).
   cleanly.
 
 ### M3 — Deliver commands to the host
+
+**Status: not built.** D10 withholds delivery on OpenCode 1.18.30. No probe
+runner, capability cache, delivery record, artifact derivation, or shared
+target-channel implementation is created while this status holds; the M1b
+dormancy attestation is moot because none of those primitives exist. The
+outcomes below remain the contract for a future host.
 
 **Dependencies:** M1, M1b, and M2.
 
@@ -1048,6 +1113,12 @@ the withheld state under D7.
   authoritative architecture never contradicts shipped behavior.
 
 ### M4 — Documentation and user-facing alignment
+
+**Status: reduced to the withheld state.** While D10 holds, the only
+user-facing documentation required is that Structured Vibe ships no OpenCode
+commands, why (host-side interpretation of target text), and that `svibe`
+is unaffected. `docs/ROADMAP.md` records the capability as blocked on the host
+rather than planned. The outcomes below apply if delivery is re-enabled.
 
 **Dependencies:** M3.
 
@@ -1297,29 +1368,102 @@ behavior cannot prove its absence. This is an independent risk from F-18 — if
 readable file contents into the prompt — and it needs its own working control
 under M1b.
 
+Recorded 2026-09-12 by `sv-e85.14` during M1b execution, which escalated
+before implementing any production primitive. Runtime **1.18.30**, executable
+SHA-256 `87bd160e053af86b5b409daabf71f8dc05bbc3a2a3a5f563f36011cdf706a999`,
+pinned package **@opencode-ai/plugin 1.18.15**. Probes ran from an immutable
+private copy of that exact executable inside an owned user/PID/network
+namespace with redirected `HOME`, `SVIBE_CONFIG_HOME`, `XDG_CONFIG_HOME`,
+`XDG_DATA_HOME`, and `XDG_CACHE_HOME`. External network was unreachable by
+construction, the configured provider pointed at an owned loopback sink that
+recorded zero bytes, and the fixture aborted at `chat.params`, so no inference
+ran. Evidence is retained at `/tmp/opencode/sv-e85-14/evidence-run4` and
+`/tmp/opencode/sv-e85-14/evidence-run5`.
+
+**F-20 — The command pipeline order is now known exactly, and it explains
+F-18.** For every command, regardless of delivery mode, 1.18.30 performs, in
+this order: positional `$n` substitution against the **template only**;
+`$ARGUMENTS` substitution; **automatic append of the raw arguments when the
+template contains neither a positional placeholder nor `$ARGUMENTS`**; shell
+execution of every `` !`...` `` occurrence in the **already-substituted**
+string; `@file` resolution over that same string; and only then
+`command.execute.before`. Interpretation therefore operates on text the target
+contributed, and the hook is downstream of all of it.
+
+**F-21 — F-18 is independently reproduced, and `@file` is settled as unsafe
+(F-19 closed).** With working direct-template positive controls for all three
+mechanisms in both delivery modes, target-only syntax introduced through
+`$ARGUMENTS` executed shell commands and created its markers, and a target-only
+`@path` caused the host to invoke its Read tool and attach the file. Positional
+placeholders introduced through the target remained literal, because positional
+substitution reads the template only. The same results hold for plugin
+injection and for markdown-file delivery.
+
+**F-22 — Omitting the target from the template is not a safe channel.** A
+static template with no target reference still received the target through the
+automatic append, and the appended text was then shell-executed and `@file`
+resolved exactly as the direct case. The candidate channel named in the
+specification's open questions is therefore refuted as written.
+
+**F-23 — Reassigning `output.parts` in `command.execute.before` is silently
+discarded; in-place mutation works.** The host passes its own array to the hook
+and then prompts with that same array, so `output.parts = [...]` has no effect
+and the target is dropped entirely. Mutating the array in place does take
+effect, and a text part inserted that way is **not** rescanned: a target
+containing `` !`...` ``, `@path`, or `$1` reached the persisted pre-model
+message verbatim, created no marker, resolved no file, and substituted nothing.
+
+**F-24 — A target-inert channel exists on 1.18.30, but only behind an
+index-bounded guard.** Because the automatic append fires whenever the template
+references nothing, suppressing it requires the template to contain a
+positional placeholder, and any such placeholder substitutes the target's own
+tokens once the target supplies enough of them. A template carrying a
+deliberately high index (`$999999`) plus in-place part insertion produced a
+fully inert target in both delivery modes. A bound probe with `$5` and a
+five-token target proved the guard is not structural: the tail token was
+substituted, shell-executed, and `@file` resolved. The threshold is an index,
+not an invariant, so this channel's safety depends on a target never reaching
+the guard's token count.
+
+**F-25 — The pre-registration enforcement point is implementable.** Inside the
+`config` hook, `GET {serverUrl}/global/health` completed in 6 ms and returned
+`{"healthy":true,"version":"1.18.30"}` before any command was registered,
+confirming that the F-08 initialization deadlock does not apply to the health
+endpoint and answering R-39's M1b outcome affirmatively.
+
+**Gate result: no probe-cleared channel on this host; delivery withheld.** The
+only inert arrangement found depends on a positional index rather than a
+structural guarantee, and the fallback form of it cannot satisfy D3's
+no-target-reference requirement. Human decision 2026-09-12 adjudicated this
+under D9 and D5's third consequence: withhold delivery rather than ship a
+bounded guard or call a target-length restriction a control. D10 records the
+decision, its consequences, and the conditions for re-enablement. M1b is
+complete; the candidate-channel inventory it recorded is closed for 1.18.30 and
+the remaining milestones are not built for this host.
+
 ## Open Questions
 
-Three empirical questions are open and gate M2 and M3; M1b resolves all three:
+All three empirical questions that gated M2 and M3 are now closed:
 
-- **Does a probe-cleared target channel exist, per delivery mode?** M1b answers it.
-  The candidate for injection is a template that does not reference the target
-  at all, with the plugin constructing the target-bearing part from the raw
-  hook `arguments` value. No candidate is currently known for markdown-file
-  fallback, since a file template can reference the target only through the
-  expansion path F-18 implicates. If none exists for a mode, D9's withholding
-  rule applies rather than a new question.
+- **Does a probe-cleared target channel exist, per delivery mode?** **No, on
+  OpenCode 1.18.30.** The injection candidate named here — a template that
+  never references the target, with the plugin constructing the target-bearing
+  part — is refuted by F-22: the host appends the raw arguments automatically
+  and interprets them. The only inert arrangement needs a positional-index
+  guard, which D10 rejects as a control. Markdown fallback has no eligible
+  channel at all. D9's withholding rule applies, as adjudicated in D10.
 - **Can the plugin identify the exact host artifact set that loaded the actual
-  host?** A version string and an unrelated same-version PATH executable are
-  insufficient. The identity must bind the running process to the complete
-  load-bearing set and immutable bytes the runner can launch. If the packaging
-  form exposes no trustworthy identity path, the artifact-keyed cache cannot
-  authorize primary delivery.
+  host?** **Moot while D10 holds**, since nothing is delivered and no
+  capability cache exists. It returns as an open question only if a future host
+  clears a channel.
 - **Can a first-encounter isolated probe complete before registration without
-  entering model inference or recursively loading the production plugin?** If
-  not, automatic primary qualification has no safe lifecycle and returns to
-  planning rather than weakening the pre-registration gate.
+  entering model inference or recursively loading the production plugin?**
+  **Partly answered and otherwise moot.** F-25 shows the pre-registration
+  observation point is reachable and that an isolated no-inference fixture is
+  constructible. The remaining runner and cache lifecycle is unbuilt under D10.
 
-The product decisions this raised are adjudicated. Human decision 2026-09-12:
+The historical decisions below stand, superseded where D10 conflicts with them.
+Human decision 2026-09-12:
 unsafe delivery is withheld rather than shipped with a documented hazard, and
 revision 8 adds that a knowingly targetless delivery is withheld on the same
 reasoning. Template work, the final architecture amendment, and delivery work
@@ -1662,30 +1806,47 @@ The revision 15 review, requested in the context of `sv-e85.14`, produced R-65
   concrete reason and with evidence that the current implementation retains
   equivalent safety coverage.
 
+## M1b adjudication
+
+`sv-e85.14` executed M1b against revision 16 and escalated rather than adopting
+the only channel it found. Human decision 2026-09-12, recorded as **D10**:
+withhold delivery on OpenCode 1.18.30.
+
+The reasoning, in the human's terms: the positional guard is not an invariant,
+it only moves the failure threshold, so neither `$999999` nor any target-length
+bound may be treated as a security control; and because the fallback template
+necessarily carries a target reference on an uncleared path, fallback does not
+satisfy D3. The result is classified as a **host capability limitation for
+OpenCode 1.18.30**, not as a failed implementation attempt. No production
+delivery is implemented for this host path, and the feature may be enabled
+later if OpenCode provides an actually inert pre-interpretation transport and
+the probes establish that it satisfies the required invariants.
+
+This supersedes, for the current host, every earlier expectation that some mode
+would ship: R-30's per-mode eligibility, R-33's unknown-runtime split, R-36's
+retained fallback machinery, and the R-42..R-58 probe/runner/cache design all
+remain the recorded contract for a future host, but none of them is built.
+
 ## Next Step
 
-Re-finalize `sv-e85.14`; its pre-revision-14 execution packet is superseded.
-Revision 16 implements the accepted revision 15 finding, and that review found
-no blocking issue. No further review round precedes M1b's empirical result. The
-bead's scope
-includes the minimal production shared target-channel, artifact-derivation,
-runner, result-cache, and plugin-to-runner primitives required to make the
-fixture authoritative, but still excludes command-set generation and delivery.
-M1b remains the next empirical gate and now also proves
-running-process-bound artifact-set identity,
-sync/process derivation digest equivalence, host behavior under a
-long-blocking registration hook,
-the registration-time path into the isolated runner, the enumerated probe
-contract, the measured first-encounter behavior used to choose the hard
-liveness timeout, and the dormancy of every M1b production primitive via
-persistent regression guards.
-In parallel, re-run `sv-beads` for the existing epic: the automatic probe
-runner and capability cache add implementation scope that is not represented
-explicitly in the revision 9 graph. The fallback beads (`sv-e85.8`, `sv-e85.9`,
-and the fallback halves of `sv-e85.10` and `sv-e85.11`) remain conditional on
-M1b clearing a fallback target channel.
+M1b is complete and D10 withholds delivery on OpenCode 1.18.30. The remaining
+work is to record that state rather than to build toward delivery.
 
-Completion of this epic unblocks re-validation of `sv-vzf` revision 5 against
-the delivered mechanism. If M1b finds no probe-cleared channel for any mode, that
-re-validation becomes an escalation instead, because `sv-vzf` assumes a
-command that can carry a target.
+1. Close `sv-e85.14` with its findings; M1b answered its question.
+2. Close the delivery beads as not applicable under D10 rather than leaving
+   them open against a host that cannot carry a target: `sv-e85.3`, `sv-e85.4`,
+   `sv-e85.6` through `sv-e85.12`. `sv-e85.5` is no longer required, because
+   the architecture never needs to describe behavior that does not ship.
+3. Record the epic as specified-but-withheld, and note in `docs/ROADMAP.md`
+   that host workflow commands are blocked on an OpenCode capability rather
+   than scheduled.
+4. Escalate to `sv-vzf`. Its revision 5 assumes a command that observably
+   carries one opaque target, and no such command will exist on this host, so
+   `sv-e85.13` becomes an input to replanning `sv-vzf` rather than a
+   re-validation. `sv-7sq` is affected the same way: there are no commands to
+   complete.
+
+Re-enablement is a new planning cycle, not a resumption of this graph. It
+begins by rerunning M1b's probe matrix unchanged against the candidate host and
+requires the D10 conditions to be met before any template or delivery bead is
+recreated.
