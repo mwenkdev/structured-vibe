@@ -11,13 +11,24 @@ For architecture and product intent, see:
 
 Structured Vibe releases are transactional.
 
-> A release/tag should exist only if the entire release pipeline completes successfully.
+> A full release and its tag should exist only if the entire release pipeline completes successfully.
 
-Release creation initiates the release transaction. If any release step fails, rollback deletes the GitHub release and its associated tag.
+Release creation initiates the release transaction. For a full release, any non-success conclusion the workflow can observe — a step failure, manual cancellation of the run, or the job exceeding its timeout — causes rollback to delete the GitHub release and its associated tag. Cancellation and timeout coverage was validated empirically against real GitHub infrastructure; see [Observed rollback behavior](#observed-rollback-behavior).
+
+**Prereleases are exempt** from this automatic rollback. See [Prerelease exemption](#prerelease-exemption). The transactional guarantee above applies to full releases only.
 
 If rollback itself fails, the workflow reports the rollback failure. No recursive rollback-of-the-rollback mechanism is required.
 
 The failed GitHub Actions run remains the troubleshooting record.
+
+### Human post-release verification
+
+Rollback runs inside the workflow, so it cannot fire when no workflow step runs ([Residual risks](#residual-risks)), and a retained prerelease looks like any other release on the releases page. The human who creates a release is therefore responsible for confirming the transaction settled. A release is not done when the workflow is dispatched; it is done when this checklist passes:
+
+1. The release workflow run reached a conclusion — it is not still running and did not disappear without one.
+2. On success, the release and tag exist and carry the expected asset set and checksums.
+3. For a full release, on any non-success conclusion, the release and tag are gone. If they are not — for any of the residual-risk reasons — delete them by hand, fix the cause, and create the release again.
+4. For a prerelease, confirm that retention was intended and that the asset set is what you expect, since rollback deletes nothing and a non-success pipeline may have left a partial set.
 
 ## Versioning
 
@@ -93,7 +104,7 @@ The release workflow is expected to perform, in order:
 11. upload release assets;
 12. complete successfully.
 
-Any failure in any release step triggers rollback.
+Any non-success conclusion of the release job — step failure, manual cancellation, or job timeout — triggers rollback.
 
 ## Release Artifacts
 
@@ -126,7 +137,7 @@ V1 does not require cryptographic release signing.
 
 ## Rollback
 
-If any release-pipeline step fails, rollback removes:
+For a full release, if the release pipeline reaches any non-success conclusion — a step fails, the run is cancelled by hand, or the job exceeds its timeout — rollback removes:
 
 1. the GitHub Release;
 2. the associated release tag.
@@ -139,10 +150,16 @@ release created
       v
 release workflow
       |
-      +-- success --> keep release + tag
+      +-- success --------------------------> keep release + tag
       |
-      +-- failure --> delete release + tag
+      +-- failure / cancellation / timeout
+              |
+              +-- full release --> delete release + tag
+              |
+              +-- prerelease ----> retain, report exemption
 ```
+
+Full-release rollback is idempotent and verifies its end state: it succeeds only when neither the release nor the tag survives, treats already-deleted objects as success, and fails loudly naming any surviving object. Rerunning it against an already-cleaned release is safe.
 
 Rollback is intentionally simple.
 
@@ -155,6 +172,28 @@ Do not:
 - recursively attempt to repair a failed rollback.
 
 After rollback, fix the underlying branch/code/configuration and create the same intended release again.
+
+### Prerelease exemption
+
+A prerelease is exempt from automatic rollback. On a non-success conclusion the rollback step runs, detects the prerelease, and retains the release and its tag instead of deleting them, reporting the exemption in the workflow log (`docs/specs/release-rollback-coverage.md`, D4).
+
+- **The GitHub `prerelease` flag is the authoritative signal**, not the SemVer prerelease suffix. When the two disagree, the flag decides and the rollback script logs a warning naming both values: a flagged `1.2.3` is retained; an unflagged `2.0.0-beta.1` is rolled back like any full release.
+- **A prerelease may exist without a successful pipeline.** It still runs the full pipeline — exact-commit verification, prerequisite CI, asset upload on success — but a non-success conclusion leaves it published.
+- **It may therefore carry an incomplete or missing asset set.** Retention is a complete no-op: no release deletion, no tag deletion, no per-asset cleanup. Whatever was uploaded before the non-success conclusion stays.
+- **It is not marked or annotated in any way.** The workflow reports retention only in its own log and does not mutate release notes, titles, or labels. The Actions run is the record of whether the pipeline succeeded.
+
+A consumer who installs a prerelease by explicit version is responsible for verifying it.
+
+### Residual risks
+
+The in-workflow rollback cannot fire when no workflow step runs, or when the runner disappears before cleanup completes (`docs/specs/release-rollback-coverage.md`, D6):
+
+- the runner is lost or the infrastructure fails mid-run;
+- the cancellation grace period expires before the rollback step completes;
+- the run is cancelled while queued, before any step executes;
+- the workflow never triggers, because Actions are disabled for the repository or `release.yml` is absent or invalid on the triggering ref.
+
+In each case a full release and tag can survive without a successful pipeline. The remedy is manual: delete the release and tag by hand, then create the release again after fixing the cause. The [human post-release verification](#human-post-release-verification) checklist is the compensating control that detects these cases.
 
 ### Observed rollback behavior
 
@@ -200,7 +239,7 @@ workflow regresses, but a static check cannot detect a guard that never fires.
 
 A failed release transaction is not resumed against a retained tag.
 
-Because rollback removes the release and tag, retrying means:
+Because rollback removes a full release and its tag, retrying means:
 
 1. fix the underlying issue;
 2. ensure prerequisite validation succeeds;

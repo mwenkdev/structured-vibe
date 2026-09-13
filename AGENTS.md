@@ -37,7 +37,7 @@ Managed files installed by a svibe release are inspectable but local modificatio
 
 Do not modify release automation without reading `docs/specs/releasing.md`.
 
-The release invariant is transactional: any release-pipeline failure rolls back the GitHub release and associated tag.
+The release invariant is transactional: any non-success release-pipeline conclusion rolls back the GitHub release and associated tag. Prereleases are exempt from rollback; `docs/specs/releasing.md` is authoritative for the exact rule and its exceptions.
 
 ## When Unsure
 

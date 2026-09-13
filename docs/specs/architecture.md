@@ -61,7 +61,7 @@ Commands that publish a coherent generated state should either complete successf
 
 `svibe sync` is transactional.
 
-The release process is also transactional: a release/tag exists only if the release pipeline succeeds.
+The release process is also transactional: a full release and its tag exist only if the release pipeline succeeds. Prereleases are exempt; `docs/specs/releasing.md` is authoritative for the release invariant and its exceptions.
 
 ### 2.6 Advisory capability tiers
 
@@ -1157,7 +1157,7 @@ Core rules:
 - generated output is disposable;
 - managed release files are inspectable but unsupported when modified;
 - missing managed files are fatal;
-- synchronization and releases are transactional;
+- synchronization and full releases are transactional (see `docs/specs/releasing.md` for the prerelease exemption);
 - important state lives in files, not hidden services;
 - future capability should be earned by real usage.
 
