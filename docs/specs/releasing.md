@@ -156,6 +156,46 @@ Do not:
 
 After rollback, fix the underlying branch/code/configuration and create the same intended release again.
 
+### Observed rollback behavior
+
+The rollback guard is `failure() || cancelled()`. That `cancelled()` half rests on
+a runtime assumption GitHub documents for manual cancellation but not for job
+timeout, so it was validated empirically against real infrastructure
+(`docs/specs/release-rollback-coverage.md`, D7). Both runs used a throwaway
+prerelease, which the D4 exemption retains rather than deletes, so the evidence
+sought was that the rollback step executed at all.
+
+| Case | Run | Job conclusion | Guard that fired | Rollback step |
+| --- | --- | --- | --- | --- |
+| Manual cancellation before checkout | 34726280788 | `cancelled` | `cancelled()` | executed, success |
+| Job timeout exceeded | 34726338633 | `cancelled` | `cancelled()` | executed, success |
+
+Both observed 2026-09-12 against implementation commit `7fa87af`.
+
+What each run establishes:
+
+- **Manual cancellation** was issued roughly seven seconds after the release was
+  created, while the job was between starting and finishing checkout. `Validate
+  version format` and `Check out the exact tagged commit` both report `skipped`,
+  yet the rollback step still ran and reported the exemption. That is the
+  checkout-independent script bootstrap working: with no workspace, the step
+  fetched the script from the contents API and executed it.
+- **Job timeout** is the load-bearing observation. The job started 23:47:48Z and
+  completed 00:18:03Z, hitting the 30-minute `timeout-minutes` bound. The
+  long-running step reports `cancelled` with `The operation was canceled`, the
+  job conclusion is `cancelled` rather than `failure`, and the rollback step
+  still ran. **A job-level timeout therefore does reach a `cancelled()`-guarded
+  step**, so `failure()` alone would have missed it and the widened guard is
+  sufficient on its own.
+
+Because the timeout case reached rollback, D7's fallback — step-level
+`timeout-minutes` on the long-running steps to convert a timeout into an
+ordinary step failure — was **not** required and was not applied.
+
+Re-validate these observations if the guard, either timeout, or the script
+bootstrap changes. `TestReleaseWorkflow*` in `internal/release` fails CI if the
+workflow regresses, but a static check cannot detect a guard that never fires.
+
 ## Rerunning
 
 A failed release transaction is not resumed against a retained tag.
